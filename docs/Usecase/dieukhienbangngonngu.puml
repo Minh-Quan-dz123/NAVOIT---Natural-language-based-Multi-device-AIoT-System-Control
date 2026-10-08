@@ -1,0 +1,28 @@
+@startuml
+left to right direction
+
+actor "Người dùng" as User
+
+rectangle "Điều khiển thiết bị bằng ngôn ngữ tự nhiên" {
+
+    usecase "Tiếp nhận yêu cầu" as UC1
+    usecase "Phân tích yêu cầu" as UC2
+    usecase "Xác định thiết bị /\nkhu vực" as UC3
+    usecase "Xác định hành động" as UC4
+    usecase "Xử lý thông tin thời gian" as UC5
+    usecase "Tạo lệnh điều khiển" as UC6
+    usecase "Gửi lệnh tới thiết bị" as UC7
+}
+
+User --> UC1
+
+UC1 --> UC2 : <<include>>
+UC2 --> UC3 : <<include>>
+UC2 --> UC4 : <<include>>
+UC2 --> UC5 : <<include>>
+UC3 --> UC6 : <<include>>
+UC4 --> UC6 : <<include>>
+UC5 --> UC6 : <<include>>
+UC6 --> UC7 : <<include>>
+
+@enduml

@@ -1,0 +1,28 @@
+@startuml
+title DeviceManager - Activity Diagram
+
+start
+
+:begin();
+
+if (Khởi tạo thành công?) then (Yes)
+
+    fork
+        :Create Device;
+    fork again
+        :Delete Device;
+    fork again
+        :Control Device;
+    fork again
+        :Get Device Information;
+    end fork
+
+    :end();
+
+else (No)
+    :Return false;
+endif
+
+stop
+
+@enduml

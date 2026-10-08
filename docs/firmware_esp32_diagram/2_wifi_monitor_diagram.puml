@@ -1,0 +1,44 @@
+@startuml
+title WiFiMonitor - Activity Diagram
+
+start
+
+:WiFiMonitor::begin();
+:Create monitorTask();
+
+while (true)
+
+    :WiFiManager::isConnected();
+
+    if (WiFi đang kết nối?) then (Không)
+
+        :recoverWiFi();
+        note right
+          Tìm WiFi đã lưu có tín 
+          hiệu mạnh nhất trong 
+          các WiFi đã scan và 
+          yêu cầu WiFiManager 
+          kết nối lại.
+        end note
+
+    else (Có)
+
+        :WiFiManager::getRSSI();
+
+        if (RSSI < rssiThreshold?) then (Có)
+
+            :recoverWiFi();
+
+        else (Không)
+
+            :Giữ kết nối hiện tại;
+
+        endif
+
+    endif
+
+    :Chờ 5 giây;
+
+endwhile
+
+@enduml

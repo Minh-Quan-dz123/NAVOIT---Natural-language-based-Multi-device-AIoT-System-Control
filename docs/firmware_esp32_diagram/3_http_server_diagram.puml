@@ -1,0 +1,64 @@
+@startuml
+title Luồng hoạt động HTTPServer
+
+start
+
+:HTTPServerTask chạy;
+:server.handleClient();
+
+if (HTTP Request là GET / ?) then (Có)
+    :handleRoot();
+    :Trả về giao diện INDEX_HTML;
+
+elseif (HTTP Request là POST /connect ?) then (Có)
+    :handleConnect();
+
+    if (Có body request ?) then (Không)
+        :Trả HTTP 400;
+    else (Có)
+
+        :Lấy SSID và password từ body;
+
+        if (Có SSID và password ?) then (Không)
+            :Trả HTTP 400;
+        else (Có)
+            :WiFiManager::requestConnect(ssid, password);
+
+            if (Gửi request thành công ?) then (Có)
+                :Trả HTTP 200;
+            else (Không)
+                :Trả HTTP 503;
+            endif
+        endif
+    endif
+
+elseif (HTTP Request là POST /cancel ?) then (Có)
+    :WiFiManager::requestCancelConnect();
+    :Trả HTTP 200;
+
+elseif (HTTP Request là POST /disconnect ?) then (Có)
+    :WiFiManager::requestDisconnect();
+    :Trả HTTP 200;
+
+elseif (HTTP Request là POST /scan ?) then (Có)
+    :WiFiManager::requestScan();
+    :Trả HTTP 200;
+
+elseif (HTTP Request là GET /scan-results ?) then (Có)
+    :Lấy số lượng WiFi đã scan;
+    :Lấy từng kết quả WiFi;
+    :Tạo JSON danh sách WiFi;
+    :Trả HTTP 200;
+
+elseif (HTTP Request là GET /status ?) then (Có)
+    :Lấy trạng thái WiFi;
+    :Lấy SSID, RSSI, IP, MAC;
+    :Tạo JSON trạng thái;
+    :Trả HTTP 200;
+endif
+
+:Tiếp tục chờ HTTP Request;
+
+stop
+
+@enduml

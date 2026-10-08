@@ -1,0 +1,28 @@
+@startuml
+left to right direction
+
+actor "Người dùng" as User
+actor "ESP32" as ESP32
+
+rectangle "Hệ thống điều khiển nhà thông minh" {
+
+    usecase "Điều khiển thiết bị\nbằng ngôn ngữ tự nhiên" as UC1
+    usecase "Quản lý thiết bị" as UC2
+    usecase "Quản lý khu vực và\ncách gọi thiết bị" as UC3
+    usecase "Quản lý ESP32" as UC4
+    usecase "Lập lịch điều khiển\nthiết bị" as UC5
+    usecase "Theo dõi và cập nhật\ntrạng thái thiết bị" as UC6
+}
+
+User --> UC1
+User --> UC2
+User --> UC3
+User --> UC4
+User --> UC5
+User --> UC6
+
+ESP32 --> UC6
+ESP32 --> UC2
+ESP32 --> UC4
+
+@enduml

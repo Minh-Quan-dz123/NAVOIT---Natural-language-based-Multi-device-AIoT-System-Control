@@ -1,0 +1,82 @@
+@startuml
+title MQTTManager
+
+start
+
+:MQTTManager::begin();
+:buildClientId();
+:buildTopics();
+:Cấu hình MQTT Broker;
+:Đăng ký mqttCallback();
+:Tạo MQTT Task;
+
+while (_running?)
+
+    if (WiFi connected?) then (Không)
+        :Disconnect MQTT nếu đang connected;
+        :Delay 100 ms;
+
+    else (Có)
+
+        if (MQTT connected?) then (Không)
+            if (Đã đủ 5 giây?) then (Có)
+                :connectMQTT();
+
+                if (Kết nối + Subscribe thành công?) then (Có)
+                    :Gửi REFRESH_TIME_REQUEST;
+                endif
+            endif
+
+        else (Có)
+            :_mqttClient.loop();
+
+            if (Có MQTT message?) then (Có)
+                :mqttCallback();
+
+                if (JSON hợp lệ + đúng microcontroller_id?) then (Có)
+
+                    if (Command Topic?) then (Có)
+
+                        if (CREATE_DEVICE_REQUEST?) then (Có)
+                            :processCreateDevice();
+                            :DeviceManager::createDevice();
+                            :Publish CREATE_DEVICE_RESPONSE;
+
+                        else if (DELETE_DEVICE_REQUEST?) then (Có)
+                            :processDeleteDevice();
+                            :DeviceManager::deleteDevice();
+                            :Publish DELETE_DEVICE_RESPONSE;
+
+                        else if (REFRESH_DEVICE_REQUEST?) then (Có)
+                            :processRefreshDevice();
+                            :DeviceManager lấy danh sách Device;
+                            :Publish REFRESH_DEVICE_RESPONSE;
+
+                        else if (DEVICE_CONTROL_REQUEST?) then (Có)
+                            :processDeviceControl();
+                            :DeviceManager::controlDevice();
+                            :Publish DEVICE_CONTROL_RESPONSE;
+                        endif
+
+                    else if (Configuration Topic?) then (Có)
+
+                        if (REFRESH_TIME_RESPONSE?) then (Có)
+                            :processRefreshTimeResponse();
+                            :Timer::setTime();
+                        endif
+
+                    endif
+                endif
+            endif
+        endif
+    endif
+
+    :Delay 100 ms;
+
+endwhile (Không)
+
+:Disconnect MQTT;
+:Task kết thúc;
+
+stop
+@enduml

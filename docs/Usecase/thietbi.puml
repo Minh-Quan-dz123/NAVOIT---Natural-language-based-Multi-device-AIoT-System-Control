@@ -1,0 +1,32 @@
+@startuml
+left to right direction
+
+actor "Người dùng" as User
+actor "ESP32" as ESP32
+
+rectangle "Quản lý thiết bị" {
+
+    usecase "Thêm thiết bị" as UC1
+    usecase "Xóa thiết bị" as UC2
+    usecase "Cập nhật thông tin\nthiết bị" as UC3
+    usecase "Lấy thông tin thiết bị" as UC4
+    usecase "Quản lý thiết bị\ntheo ESP32" as UC5
+}
+
+User --> UC1
+User --> UC2
+User --> UC3
+User --> UC4
+User --> UC5
+
+ESP32 --> UC1
+ESP32 --> UC2
+ESP32 --> UC4
+ESP32 --> UC5
+
+UC1 --> UC5 : <<include>>
+UC2 --> UC5 : <<include>>
+UC3 --> UC5 : <<include>>
+UC4 --> UC5 : <<include>>
+
+@enduml

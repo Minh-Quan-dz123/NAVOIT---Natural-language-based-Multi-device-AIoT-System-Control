@@ -1,0 +1,33 @@
+@startuml
+title WiFiManager - Architecture
+
+actor "Application" as App
+
+rectangle "WiFiManager API" as API
+queue "Command Queue" as Queue
+rectangle "WiFiManagerTask" as Task
+rectangle "ESP32 WiFi" as WiFi
+database "Preferences" as Flash
+rectangle "RAM Data" as RAM
+
+' ===== Command =====
+App --> API : requestConnect()\nrequestDisconnect()\nrequestScan()
+
+API --> Queue : WiFiCommand
+Queue --> Task : Command
+
+App --> API : requestCancelConnect()
+API --> Task : cancelRequested
+
+Task --> WiFi : Connect / Disconnect / Scan
+WiFi --> Task : Result
+
+' ===== Data =====
+Task --> RAM : Update state/results
+Task --> Flash : Save / Load WiFi
+
+App --> API : Getter functions
+API --> RAM : Read data
+API --> WiFi : Read WiFi info
+
+@enduml

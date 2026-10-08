@@ -1,0 +1,24 @@
+@startuml
+left to right direction
+
+actor "Người dùng" as User
+
+rectangle "Lập lịch điều khiển thiết bị" {
+
+    usecase "Tạo lịch điều khiển" as UC1
+    usecase "Thực hiện hành động\ntheo lịch" as UC2
+    usecase "Thiết lập thời gian\nthực hiện" as UC3
+    usecase "Thiết lập thời gian\nduy trì trạng thái" as UC4
+    usecase "Hủy lịch điều khiển" as UC5
+}
+
+User --> UC1
+User --> UC5
+
+UC1 --> UC3 : <<include>>
+UC1 --> UC4 : <<include>>
+UC1 --> UC2 : <<include>>
+
+UC5 --> UC2 : <<extend>>
+
+@enduml

@@ -1,0 +1,68 @@
+@startuml
+start
+
+:Khởi tạo DeviceTask;
+
+if (start thành công?) then (Có)
+
+    while (Task đang chạy?)
+
+        :Chờ Command tối đa 100 ms;
+
+        if (Có Command?) then (Có)
+            :processCommand();
+
+            if (CANCEL_SCHEDULE?) then (Có)
+                :cancelSchedule();
+            else (Không)
+                :Xác định trường hợp command;
+                :Tính Tnow / Tstart / Tend;
+                :createSchedule();
+                note right
+                    ss = 1:
+                    Đang kiểm tra
+                    Tnow đã tới Tstart chưa
+                end note
+            endif
+        endif
+
+        :checkSchedule();
+
+        if (ss == 1?) then (Có)
+            note right
+                ss = 1:
+                Kiểm tra Tnow >= Tstart?
+            end note
+
+            if (Tnow >= Tstart?) then (Có)
+                :Thực hiện trạng thái tại Tstart;
+                :ss = 2;
+            endif
+
+        elseif (ss == 2?) then (Có)
+            note right
+                ss = 2:
+                Kiểm tra Tnow >= Tend?
+            end note
+
+            if (Tnow >= Tend?) then (Có)
+                :Thực hiện trạng thái tại Tend;
+                :ss = 3;
+            endif
+
+        else
+            note right
+                ss = 3:
+                Đã qua Tend,
+                Schedule đã kết thúc
+            end note
+        endif
+
+    endwhile
+
+else (Không)
+    :Start thất bại;
+endif
+
+stop
+@enduml
