@@ -1,0 +1,103 @@
+@startuml
+
+hide methods
+skinparam linetype ortho
+
+' =========================
+' User / Hardware
+' =========================
+
+entity User #E3F2FD {
+    * Id : PK
+    --
+    Username
+    Password
+    CreatedAt
+}
+
+entity Microcontroller #E3F2FD {
+    * Id : PK
+    --
+    UserId : FK
+    MacAddress
+    Type
+    CreatedAt
+}
+
+entity Device #E3F2FD {
+    * Id : PK
+    --
+    MicrocontrollerId : FK
+    UserId : FK
+    ScheduleId : FK
+    DeviceName
+    DeviceTypeId : FK
+    Gpio
+    CreatedAt
+}
+
+' =========================
+' Device configuration
+' =========================
+
+entity DeviceType #FFF3E0 {
+    * Id : PK
+    --
+    DeviceCurrentStatus
+}
+
+entity Schedule #FFF3E0 {
+    * Id : PK
+    --
+    DeviceId : FK
+    TStart
+    TEnd
+    StateTStart
+    StateTEnd
+}
+
+' =========================
+' Tag
+' =========================
+
+entity TagGroup #E8F5E9 {
+    * Id : PK
+    --
+    CreatedAt
+}
+
+entity Tag #E8F5E9 {
+    * Id : PK
+    --
+    Value
+    CreatedAt
+    TagGroupId : FK
+}
+
+entity DeviceTagGroup #E8F5E9 {
+    * Id : PK
+    --
+    DeviceId : FK
+    TagGroupId : FK
+    CreatedAt
+}
+
+' =========================
+' Relationships
+' =========================
+
+User "1" -- "N" Microcontroller
+User "1" -- "N" Device
+
+Microcontroller "1" -- "N" Device
+
+DeviceType "1" -- "N" Device
+
+Device "1" -- "1" Schedule
+
+TagGroup "1" -- "N" Tag
+
+Device "1" -- "N" DeviceTagGroup
+TagGroup "1" -- "N" DeviceTagGroup
+
+@enduml

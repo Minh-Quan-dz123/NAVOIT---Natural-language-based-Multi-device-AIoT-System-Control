@@ -1,0 +1,1 @@
+// Gán hoặc bỏ nhóm tag cho thiết bị
