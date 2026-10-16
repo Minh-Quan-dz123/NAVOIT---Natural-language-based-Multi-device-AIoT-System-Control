@@ -37,7 +37,7 @@ public class UserController : ControllerBase
 
     // 2. Cập nhật toàn bộ thông tin được phép sửa
     // PUT: /api/user/{id}
-    [HttpPut]
+    [HttpPut("{id:int}")]
     public async Task<IActionResult> Update(int id, [FromBody] UpdateUserRequestDto request)
     {
         try
@@ -57,7 +57,7 @@ public class UserController : ControllerBase
 
     // 3. Xóa User
     // DELETE: /api/user/{id}
-    [HttpDelete]
+    [HttpDelete("{id:int}")]
     public async Task<IActionResult> Delete(int id)
     {
         var deleted = await _userService.DeleteUserAsync(id);
@@ -79,7 +79,20 @@ public class UserController : ControllerBase
         return Ok(result);
     }
 
-    // 4.2. lấy danh sách User
+    // 4.2. Lấy thông tin User theo Username
+    // GET: /api/user/username/{username}
+    [HttpGet("username/{username}")]
+    public async Task<IActionResult> GetByUsername(string username)
+    {
+        var result = await _userService.GetUserByUsernameAsync(username);
+
+        if (result == null)
+            return NotFound(new { message = "Không tìm thấy User." });
+
+        return Ok(result);
+    }
+
+    // 4.3. lấy danh sách User
     // GET: /api/user
     [HttpGet]
     public async Task<IActionResult> GetAll()

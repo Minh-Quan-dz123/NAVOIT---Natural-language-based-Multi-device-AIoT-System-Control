@@ -15,15 +15,12 @@ public class DeviceTypeService
     // 1. Lấy tất cả loại thiết bị
     public async Task<List<DeviceType>> GetAllAsync()
     {
-        return await _context.DeviceTypes
-            .AsNoTracking()
-            .ToListAsync();
+        return await _context.DeviceTypes.AsNoTracking().ToListAsync();
     }
 
-    // 2. Lấy loại thiết bị theo ID
+    // 2. Lấy loại thiết bị theo ID của nó
     public async Task<DeviceType?> GetByIdAsync(int id)
     {
-        //không theo dõi (tracking) đối tượng được truy vấn.
         return await _context.DeviceTypes.AsNoTracking().FirstOrDefaultAsync(dt => dt.Id == id);
     }
 
@@ -101,8 +98,7 @@ public class DeviceTypeService
         // Không cho xóa loại thiết bị đang được sử dụng
         if (deviceType.Devices.Any())
         {
-            throw new InvalidOperationException(
-                "Không thể xóa loại thiết bị đang được sử dụng.");
+            throw new InvalidOperationException("Không thể xóa loại thiết bị đang được sử dụng.");
         }
 
         _context.DeviceTypes.Remove(deviceType);
@@ -117,16 +113,14 @@ public class DeviceTypeService
         // chứa các trạng thái không rỗng và không bị trùng lặp hay không.
         try
         {
-            var statuses = System.Text.Json.JsonSerializer
-                    .Deserialize<List<string>>(allowedStatuses);
+            var statuses = System.Text.Json.JsonSerializer.Deserialize<List<string>>(allowedStatuses);
 
             if (statuses == null || statuses.Any(string.IsNullOrWhiteSpace))
             {
                 throw new ArgumentException("AllowedStatuses phải là JSON array chứa các trạng thái hợp lệ.");
             }
 
-            if (statuses.Distinct(StringComparer.OrdinalIgnoreCase).Count()
-                != statuses.Count)
+            if (statuses.Distinct(StringComparer.OrdinalIgnoreCase).Count()!= statuses.Count)
             {
                 throw new ArgumentException( "AllowedStatuses không được chứa trạng thái trùng lặp.");
             }

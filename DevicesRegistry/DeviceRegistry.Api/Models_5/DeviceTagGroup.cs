@@ -9,6 +9,7 @@ public class DeviceTagGroup
     // TODO:
     // n Tag -> 1 Tag Group
     // n Tag Group -> n Device
+    // từ đó cần 1 nơi để lưu chung
 
     // Primary key
     public int Id { get; set; }

@@ -9,7 +9,7 @@ namespace DeviceRegistry.Api.Services;
 
 public class UsersService
 {
-    // 0. Inject AppDbContext
+    // 0. Inject
     private readonly AppDbContext _context;
     private readonly PasswordHasher<User> _passwordHasher = new();
     public UsersService(AppDbContext context) {_context = context;}
@@ -60,9 +60,15 @@ public class UsersService
     // 2. Lấy thông tin User theo ID
     public async Task<UserResponseDto?> GetUserByIdAsync(int id)
     {
-        var user = await _context.Users
-            .AsNoTracking()
-            .FirstOrDefaultAsync(u => u.Id == id);
+        // với GetUserByIdAsync thì bỏ AsNoTracking cx được, 
+        var user = await _context.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == id);
+        return user == null ? null : MapToDto(user);
+    }
+
+    // 2.5. lấy thông tin User theo username
+    public async Task<UserResponseDto?> GetUserByUsernameAsync(string username)
+    {
+        var user = await _context.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Username == username);
 
         return user == null ? null : MapToDto(user);
     }
@@ -125,6 +131,7 @@ public class UsersService
     // 5. Đổi mật khẩu
     public async Task<bool> ChangePasswordAsync(int id, ChangePasswordRequestDto dto)
     {
+        // lấy user ra
         var user = await _context.Users.FirstOrDefaultAsync(u => u.Id == id);
         if (user == null) return false;
 
@@ -139,10 +146,7 @@ public class UsersService
             throw new UnauthorizedAccessException("Mật khẩu hiện tại không chính xác.");
 
         // 5.2. nếu oke thì lưu cái mới
-        user.Password = _passwordHasher.HashPassword(
-            user,
-            dto.NewPassword
-        );
+        user.Password = _passwordHasher.HashPassword(user,dto.NewPassword);
 
         await _context.SaveChangesAsync();
 

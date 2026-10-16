@@ -31,6 +31,7 @@ public class DeviceService
     // 2.1. get all theo user
     public async Task<List<Device>> GetAllByUserIdAsync(int userId)
     {
+        // dùng Include để mò theo khóa ngoại, lấy các object khác
         return await _context.Devices
             .Where(d => d.UserId == userId)
             .Include(d => d.DeviceType)
@@ -67,7 +68,7 @@ public class DeviceService
         return device;
     }
 
-    // 4. cập nhật device =========TODO ==================
+    // 4. cập nhật device = gán lại toàn bộ thông tin
     public async Task<Device?> UpdateAsync(int id, int userId, Device updatedDevice)
     {
         var device = await _context.Devices.FirstOrDefaultAsync(d =>d.Id == id && d.UserId == userId);
@@ -98,9 +99,10 @@ public class DeviceService
         return true;
     }
 
-    // 6. Cập nhật trạng thái hiện tại của device =====TODO===========
+    // 6. Cập nhật trạng thái hiện tại của device 
     public async Task<Device?> UpdateStatusAsync(int id, int userId, string status)
     {
+        // 6.1. lấy Device và Type của nó
         var device = await _context.Devices
             .Include(d => d.DeviceType)
             .FirstOrDefaultAsync(d =>
@@ -108,21 +110,21 @@ public class DeviceService
 
         if (device == null) return null;
 
-        // Kiểm tra trạng thái có hợp lệ với loại thiết bị không
+        // 6.2. Kiểm tra trạng thái có hợp lệ với loại thiết bị không
         var allowedStatuses = System.Text.Json.JsonSerializer
             .Deserialize<List<string>>(device.DeviceType.AllowedStatuses)?? new List<string>();
 
-        if (!allowedStatuses.Contains(status, StringComparer.OrdinalIgnoreCase))
+        if (!allowedStatuses.Contains(status.Trim(), StringComparer.OrdinalIgnoreCase))
         {
             throw new ArgumentException(
                 $"Trạng thái '{status}' không hợp lệ " +
                 $"với thiết bị loại '{device.DeviceType.TypeName}'.");
         }
 
+        // 6.3. thực hiện cập nhật
         device.CurrentStatus = status;
 
         await _context.SaveChangesAsync();
-
         return device;
     }
 

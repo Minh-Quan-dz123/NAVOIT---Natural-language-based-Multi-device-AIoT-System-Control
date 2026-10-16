@@ -3,14 +3,15 @@ using DeviceRegistry.Api.Services;
 using Microsoft.AspNetCore.Mvc;
 
 namespace DeviceRegistry.Api.Controllers;
+
 [ApiController]
 [Route("api/[controller]")]
 public class AuthController : ControllerBase
 {
 
+    // 1. hàm khởi tạo
     private readonly AuthService _authService;
 
-    
     public AuthController(AuthService authService)
     {
         _authService = authService;
@@ -39,10 +40,7 @@ public class AuthController : ControllerBase
 
         if (result == null)
         {
-            return Unauthorized(new
-            {
-                message = "Username hoặc password không chính xác."
-            });
+            return Unauthorized(new {message = "Username hoặc password không chính xác."});
         }
 
         return Ok(result);
