@@ -14,4 +14,7 @@ namespace MQTTManager
 
     // Thông tin MQTT
     const char *getClientId();
+    
+    // helper
+    void printSubscribedTopics();
 }

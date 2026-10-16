@@ -1178,20 +1178,11 @@ namespace
             </div>
 
 
-            <div class="empty">
-
-                <div class="empty-icon">
-                    💾
+            <div id="savedWiFiList">
+                <div class="empty">
+                    <div class="empty-icon">💾</div>
+                    <div class="empty-title">Loading saved networks...</div>
                 </div>
-
-                <div class="empty-title">
-                    No saved networks
-                </div>
-
-                <div class="empty-text">
-                    Saved WiFi networks will appear here.
-                </div>
-
             </div>
 
         </div>
@@ -1217,13 +1208,11 @@ namespace
 
 function togglePassword()
 {
-    const password =
-        document.getElementById("password");
+    const password = document.getElementById("password");
 
-    password.type =
-        password.type === "password"
-            ? "text"
-            : "password";
+    if (password.type === "password") password.type = "text";
+    else password.type = "password";
+
 }
 
 
@@ -1233,45 +1222,68 @@ function togglePassword()
 
 async function connectWiFi()
 {
-    const ssid =
-        document.getElementById("ssid").value;
-
-    const password =
-        document.getElementById("password").value;
-
-    if (!ssid)
-    {
-        return;
-    }
+    const ssid = document.getElementById("ssid").value;
+    const password = document.getElementById("password").value;
+    if (!ssid) return;
 
     try
     {
-        await fetch(
-            "/connect",
+        const response = await fetch("/connect", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+                ssid: ssid,
+                password: password
+            })
+        });
+
+        const data = await response.json();
+
+        if (!response.ok || !data.success)
+        {
+            console.error("Unable to request WiFi connection");
+            return;
+        }
+
+        // Đợi ESP32 kết nối xong rồi tải lại danh sách đã lưu
+        let attempts = 0;
+
+        const timer = setInterval(async function()
+        {
+            attempts++;
+            try
             {
-                method: "POST",
+                const statusResponse = await fetch("/status");
+                const status = await statusResponse.json();
 
-                headers:
+                if (status.status === "CONNECTED" ||
+                    status.status === "FAILED" ||
+                    attempts >= 12)
                 {
-                    "Content-Type":
-                        "application/json"
-                },
+                    clearInterval(timer);
 
-                body:
-                    JSON.stringify(
+                    if (status.status === "CONNECTED")
                     {
-                        ssid: ssid,
-                        password: password
-                    })
-            });
+                        await loadSavedWiFi();
+                    }
+                }
+            }
+            catch (error)
+            {
+                console.error("Connection status error:", error);
+                clearInterval(timer);
+            }
+        }, 1000);
     }
     catch (error)
     {
-        console.error(
-            "Connect error:",
-            error);
+        console.error("Connect error:", error);
     }
+
 }
+
 
 
 // ========================================================
@@ -1591,10 +1603,104 @@ async function loadScanResults()
     }
 }
 
+// LOAD SAVED WIFI
+async function loadSavedWiFi()
+{
+    const container =
+        document.getElementById("savedWiFiList");
 
-// ========================================================
+    try
+    {
+        const response = await fetch("/saved-wifi");
+
+        if (!response.ok)
+        {
+            throw new Error("HTTP " + response.status);
+        }
+
+        const data = await response.json();
+
+        container.innerHTML = "";
+
+        if (!data.networks || data.networks.length === 0)
+        {
+            container.innerHTML = `
+                <div class="empty">
+                    <div class="empty-icon">💾</div>
+                    <div class="empty-title">No saved networks</div>
+                    <div class="empty-text">
+                        Connect to a WiFi network to save it.
+                    </div>
+                </div>
+            `;
+            return;
+        }
+
+        const list = document.createElement("div");
+        list.className = "wifi-list";
+
+        data.networks.forEach(function(network)
+        {
+            const item = document.createElement("div");
+            item.className = "wifi-item";
+
+            const info = document.createElement("div");
+            info.className = "wifi-info";
+
+            const icon = document.createElement("div");
+            icon.className = "wifi-icon";
+            icon.innerText = "💾";
+
+            const details = document.createElement("div");
+            details.className = "wifi-details";
+
+            const ssid = document.createElement("div");
+            ssid.className = "wifi-ssid";
+            ssid.innerText = network.ssid || "(Hidden Network)";
+
+            const bssid = document.createElement("div");
+            bssid.className = "wifi-bssid";
+            bssid.innerText = network.bssid || "—";
+
+            details.appendChild(ssid);
+            details.appendChild(bssid);
+
+            info.appendChild(icon);
+            info.appendChild(details);
+            item.appendChild(info);
+
+            // Chọn WiFi đã lưu để điền vào form kết nối
+            item.onclick = function()
+            {
+                document.getElementById("ssid").value =
+                    network.ssid || "";
+
+                document.getElementById("password").value = "";
+                document.getElementById("password").focus();
+            };
+
+            list.appendChild(item);
+        });
+
+        container.appendChild(list);
+    }
+    catch (error)
+    {
+        console.error("Load saved WiFi error:", error);
+
+        container.innerHTML = `
+            <div class="empty">
+                <div class="empty-icon">⚠️</div>
+                <div class="empty-title">Failed to load saved networks</div>
+                <div class="empty-text">
+                    Please refresh the page and try again.
+                </div>
+            </div>
+        `;
+    }
+}
+
 // STATUS
-// ========================================================
 
 async function updateStatus()
 {
@@ -1754,6 +1860,7 @@ setInterval(
     1000);
 
 updateStatus();
+loadSavedWiFi();
 
 </script>
 
@@ -1875,6 +1982,49 @@ updateStatus();
         server.send(200, "application/json", json);
     } 
 
+
+    // 6.5 GET /saved-wifi
+    void handleSavedWiFi()
+    {
+        String json = "{\"networks\":[";
+        int count = WiFiManager::getSavedCount();
+
+        for (int i = 0; i < count; i++)
+        {
+            SavedWiFi wifi = WiFiManager::getSavedWiFi(i);
+
+            if (i > 0)
+            {
+                json += ",";
+            }
+
+            json += "{";
+            json += "\"ssid\":\"";
+
+            // Escape các ký tự đặc biệt để JSON hợp lệ
+            String ssid = wifi.ssid;
+            ssid.replace("\\", "\\\\");
+            ssid.replace("\"", "\\\"");
+            ssid.replace("\n", "\\n");
+            ssid.replace("\r", "\\r");
+
+            json += ssid;
+            json += "\",";
+            json += "\"bssid\":\"";
+
+            String bssid = wifi.bssid;
+            bssid.replace("\\", "\\\\");
+            bssid.replace("\"", "\\\"");
+
+            json += bssid;
+            json += "\"}";
+        }
+
+        json += "]}";
+
+        server.send(200, "application/json", json);
+    }
+
     // 7. get /status
     void handleStatus()
     {
@@ -1932,6 +2082,8 @@ void HTTPServer::begin()
 
     // 6. đăng ký hàm get scan result
     server.on("/scan-results", HTTP_GET, handleScanResults);
+    // 6.5. 
+    server.on("/saved-wifi", HTTP_GET, handleSavedWiFi);
 
     // 7. đăng ký hàm get status
     server.on("/status", HTTP_GET, handleStatus);

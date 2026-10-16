@@ -73,7 +73,7 @@ namespace
         Serial.println("[WiFiMonitor] Starting recovery scan");
 
         WiFiManager::requestScan(); // gửi yêu cầu và đợi khoảng 5 giây
-        vTaskDelay(pdMS_TO_TICKS(5000));
+        vTaskDelay(pdMS_TO_TICKS(10000));
 
         int bestIndex = -1;
         int32_t bestRSSI = -127;

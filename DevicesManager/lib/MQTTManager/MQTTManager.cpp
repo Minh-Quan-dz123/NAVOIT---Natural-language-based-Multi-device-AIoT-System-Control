@@ -3,6 +3,7 @@
 #include <Arduino.h>
 #include <PubSubClient.h>
 #include <ArduinoJson.h>
+#include <WiFiClientSecure.h>
 
 #include "WiFiManager.h"
 #include "DeviceManager.h"
@@ -23,10 +24,10 @@ namespace
     // 1. cấu hình
 
     // 1.1. MQTT CONNECTION
-    constexpr const char *MQTT_BROKER = "192.168.1.100";
-    constexpr uint16_t MQTT_PORT = 1883;
-    constexpr const char *MQTT_USERNAME = nullptr;
-    constexpr const char *MQTT_PASSWORD = nullptr;
+    constexpr const char *MQTT_BROKER = "03fbc12347f1474da0ae09d7f1a9c894.s1.eu.hivemq.cloud";
+    constexpr uint16_t MQTT_PORT = 8883;
+    constexpr const char *MQTT_USERNAME = "hivemq.webclient.1791559584748";
+    constexpr const char *MQTT_PASSWORD = "vjckvnZlSmyqiVHu9UB4B8WZyAc%hPcZ";
 
     // 1.2. MQTT TASK CONFIGURATION
     constexpr uint32_t MQTT_TASK_STACK_SIZE = 8192;
@@ -63,7 +64,7 @@ namespace
     //iot/esp32/v1/jkqwbcwfjd/ROM_ESP32/CONFIGURATION
 
     // 5. MQTT OBJECT
-    WiFiClient _wifiClient; // TCP client dùng để kết nối tới MQTT Broker.
+    WiFiClientSecure _wifiClient; // TCP client dùng để kết nối tới MQTT Broker.
     PubSubClient _mqttClient(_wifiClient); // MQTT client sử dụng WiFiClient ở trên.
 
     TaskHandle_t _taskHandle = nullptr;
@@ -135,24 +136,58 @@ namespace
     // Chuyển JsonDocument thành chuỗi JSON => rồi publish lên MQTT topic.
     bool publishJson(const char *topic, JsonDocument &doc)
     {
-        if (!_mqttClient.connected()) return false;
+        if (!_mqttClient.connected())
+        {
+            Serial.println("[ERROR] MQTT is NOT connected");
+            Serial.printf("[INFO] MQTT state: %d\n", _mqttClient.state());
+            return false;
+        }
         char buffer[2048];
 
         // Chuyển JsonDocument → chuỗi JSON.
         size_t length = serializeJson(doc, buffer, sizeof(buffer));
 
-        if (length == 0 || length >= sizeof(buffer)) return false; // Không tạo được JSON.
-        return _mqttClient.publish(topic, buffer, length);
+        if (length == 0 || length >= sizeof(buffer))
+        {
+            Serial.println("[ERROR] JSON serialization failed or buffer too small");
+            return false;
+        }
+
+        Serial.printf("[TOPIC] %s\n", topic);
+        Serial.printf("[PAYLOAD] %s\n", buffer);
+
+        unsigned int requiredSize = 5+2 + strlen(topic) + length;
+
+        Serial.printf("[DEBUG] Topic length: %u\n", strlen(topic));
+        Serial.printf("[DEBUG] Payload length: %u\n", length);
+        Serial.printf("[DEBUG] Estimated packet size: %u\n", requiredSize);
+        Serial.printf("[DEBUG] Buffer size: %u\n", _mqttClient.getBufferSize());
+
+        bool result = _mqttClient.publish(topic, buffer, length);
+
+        Serial.printf("[RESULT] Publish: %s\n", result ? "SUCCESS" : "FAILED");
+
+        if (!result)
+        {
+            Serial.printf("[ERROR] MQTT state: %d\n", _mqttClient.state());
+            Serial.printf("[ERROR] Payload length: %u\n", length);
+            Serial.printf("[ERROR] MQTT buffer size: %u\n", _mqttClient.getBufferSize());
+            Serial.printf("[ERROR] MQTT connected: %d\n", _mqttClient.connected());
+        }
+        Serial.println("==================================");
+        return result;
     }
 
     // 9. TẠO PHẦN THÔNG TIN CHUNG CỦA RESPONSE
     // Các response đều có một số thông tin giống nhau: command, command_id, microcontroller_id
     // Hàm này giúp không phải viết lại 3 trường trên
-    void fillCommonResponse(JsonObject response, const char *command, const char *commandId)
+    void fillCommonResponse(JsonObject response, const char *command, const char *commandId, const char *status, const char *message)
     {
         response["command"] = command;
         response["command_id"] = commandId;
         response["microcontroller_id"] = WiFiManager::getMAC();
+        response["status"] = status;
+        response["message"] = message;
     }
 
     //===================================================
@@ -160,12 +195,12 @@ namespace
     //===================================================
     // 10. CREATE_DEVICE_RESPONSE
     // Báo cho Server rằng CREATE_DEVICE đã xử lý thành công.
-    void sendCreateDeviceResponse(const char *commandId, uint8_t gpio, const char *send_time)
+    void sendCreateDeviceResponse(const char *commandId, uint8_t gpio, const char *send_time, const char *status, const char *message)
     {
         JsonDocument doc;
         JsonObject response = doc.to<JsonObject>();
 
-        fillCommonResponse(response, "CREATE_DEVICE_RESPONSE", commandId);
+        fillCommonResponse(response, "CREATE_DEVICE_RESPONSE", commandId, status, message);
 
         response["gpio"] = gpio;
         response["send_time"] = send_time;
@@ -175,11 +210,11 @@ namespace
 
     // 11. DELETE_DEVICE_RESPONSE
     // Báo cho Server rằng DELETE_DEVICE đã xử lý thành công.
-    void sendDeleteDeviceResponse(const char *commandId, uint8_t gpio, const char *send_time)
+    void sendDeleteDeviceResponse(const char *commandId, uint8_t gpio, const char *send_time, const char *status, const char *message)
     {
         JsonDocument doc;
         JsonObject response = doc.to<JsonObject>();
-        fillCommonResponse(response, "DELETE_DEVICE_RESPONSE", commandId);
+        fillCommonResponse(response, "DELETE_DEVICE_RESPONSE", commandId, status, message);
 
         response["gpio"] = gpio;
         response["send_time"] = send_time;
@@ -189,12 +224,12 @@ namespace
 
     // 12. DEVICE_CONTROL_RESPONSE
     // Báo cho Server rằng lệnh điều khiển Device đã được DeviceManager xử lý thành công.
-    void sendDeviceControlResponse(const char *commandId, uint8_t gpio, const char *send_time)
+    void sendDeviceControlResponse(const char *commandId, uint8_t gpio, const char *send_time, const char *status, const char *message)
     {
         JsonDocument doc;
         JsonObject response = doc.to<JsonObject>();
 
-        fillCommonResponse(response, "DEVICE_CONTROL_RESPONSE", commandId);
+        fillCommonResponse(response, "DEVICE_CONTROL_RESPONSE", commandId, status, message);
 
         response["gpio"] = gpio;
         response["send_time"] = send_time;
@@ -216,12 +251,12 @@ namespace
     // "device_count": 5,
     // "send_time": 1727850000
     // }
-    void sendRefreshDeviceResponse(const char *commandId, const char *send_time)
+    void sendRefreshDeviceResponse(const char *commandId, const char *send_time, const char *status, const char *message)
     {
         JsonDocument doc;
         JsonObject response = doc.to<JsonObject>();
 
-        fillCommonResponse(response,"REFRESH_DEVICE_RESPONSE",commandId);
+        fillCommonResponse(response,"REFRESH_DEVICE_RESPONSE",commandId, status, message);
 
         JsonArray gpios = response["gpios"].to<JsonArray>();
         JsonArray types = response["device_types"].to<JsonArray>();
@@ -250,6 +285,19 @@ namespace
         publishJson(_commandPublishTopic, doc);
     }
 
+    // 13.5 Thêm hàm response thời gian
+    void sendRefreshTimeResponse(const char *commandId, time_t currentTime, const char *status, const char *message)
+    {
+        JsonDocument doc;
+        JsonObject response = doc.to<JsonObject>();
+
+        fillCommonResponse(response, "REFRESH_TIME_ACK", commandId, status, message);
+
+        response["current_time"] = static_cast<int64_t>(currentTime);
+
+        publishJson(_configurationPublishTopic, doc);
+    }
+
     // =======================================
     // các hàm pubich của set up time
     // Sau khi ESP32 kết nối MQTT thành công, yêu cầu Server gửi thời gian hiện tại.
@@ -268,11 +316,18 @@ namespace
     // 15. XỬ LÝ REFRESH TIME RESPONSE
     // Nhận thời gian Server gửi xuống ESP32.
     // Hiện tại mới kiểm tra current_time.
-    void processRefreshTimeResponse(JsonObject detail)
+    void processRefreshTimeResponse(JsonObject root)
     {
+        const char *commandId = root["command_id"] | "";
         time_t currentTime;
-        if (!Utils::getTimestampFromJson(detail["current_time"], currentTime)) return;
+
+        if (!Utils::getTimestampFromJson(root["current_time"], currentTime))
+        {
+            sendRefreshTimeResponse(commandId,0,"error","Missing or invalid current_time");
+            return;
+        }
         Timer::setTime(currentTime);
+        sendRefreshTimeResponse(commandId,currentTime,"success","Time synchronized successfully");
     }
 
     // 17. hàm XỬ LÝ CREATE DEVICE
@@ -305,12 +360,33 @@ namespace
         const char *deviceName = root["device_name"];
         const char *sendTime = root["send_time"];
         //uint8_t gpio = root["gpio"]; ở trên r
+        
+        // 17.1. Kiểm tra GPIO đã được đăng ký chưa.
+        if (DeviceManager::hasDevice(gpio))
+        {
+            sendCreateDeviceResponse(commandId, gpio, sendTime,"error","GPIO is already configured");
+            return;
+        }
+
+        // 17.2. Kiểm tra số lượng thiết bị tối đa.
+        if ((DeviceManager::getDeviceCount()) >= (DeviceManager::MAX_DEVICES))
+        {
+            sendCreateDeviceResponse(commandId, gpio, sendTime,"error","Maximum number of devices reached");
+            return;
+        }
 
         // Yêu cầu DeviceManager tạo Device.
         bool result = DeviceManager::createDevice(gpio, deviceType, deviceName);
 
         // Nếu tạo thành công → gửi response.
-        if (result) sendCreateDeviceResponse(commandId, gpio, sendTime);
+        if (result)
+        {
+            sendCreateDeviceResponse(commandId, gpio, sendTime,"success", "Device created successfully");
+        }
+        else
+        {
+            sendCreateDeviceResponse(commandId, gpio, sendTime,"error", "Failed to create device");
+        }
     }
 
     // 17. XỬ LÝ DELETE DEVICE
@@ -325,8 +401,8 @@ namespace
         uint8_t gpio;
         if (!Utils::getGpioFromJson(root["gpio"], gpio)) return;
 
-        if (!root["device_type"].is<const char *>()) return;
-        if (!root["device_name"].is<const char *>()) return;
+        // if (!root["device_type"].is<const char *>()) return;
+        // if (!root["device_name"].is<const char *>()) return;
         if (!root["send_time"].is<const char *>()) return;
 
         // Lấy dữ liệu từ JSON.
@@ -337,12 +413,16 @@ namespace
         //uint8_t gpio = root["gpio"]; ở trên r
 
         // Yêu cầu DeviceManager xóa Device.
-        bool result = DeviceManager::deleteDevice(gpio, deviceType, deviceName);
+        bool result = DeviceManager::deleteDevice(gpio);
 
         // Xóa thành công → gửi response.
         if (result)
         {
-            sendDeleteDeviceResponse(commandId, gpio, sendTime);
+            sendDeleteDeviceResponse(commandId, gpio, sendTime,"success", "Device deleted successfully");
+        }
+        else
+        {
+            sendDeleteDeviceResponse(commandId, gpio, sendTime,"error", "Failed to delete device");
         }
     }
 
@@ -351,13 +431,21 @@ namespace
     // Server yêu cầu ESP32 gửi lại danh sách Device hiện tại.
     void processRefreshDevice(JsonObject root)
     {
-        if (!root["command_id"].is<const char *>()) return;
-        if (!root["send_time"].is<const char *>()) return;
+        if (!root["command_id"].is<const char *>())
+        {
+            Serial.println("[ERROR] Missing or invalid command_id");
+            return;
+        }
 
         const char *commandId = root["command_id"];
-        const char *sendTime = root["send_time"];
+        if (!root["send_time"].is<const char *>())
+        {
+            sendRefreshDeviceResponse(commandId,"","error","Missing or invalid send_time");
+            return;
+        }
 
-        sendRefreshDeviceResponse(commandId, sendTime);
+        const char *sendTime = root["send_time"];
+        sendRefreshDeviceResponse(commandId,sendTime,"success","Device list refreshed successfully");
     }
 
 
@@ -434,16 +522,47 @@ namespace
         {
             if (!Utils::getTimestampFromJson(detail["scheduled_end_at"], command.scheduled_end_at)) return;
         }
-        // Gửi command sang DeviceManager
 
+        // Kiểm tra Timer đã được đồng bộ thời gian chưa.
+        // Các lệnh có duration hoặc schedule cần thời gian hợp lệ.
+        if (
+            command.duration > 0 ||
+            command.scheduled_delay > 0 ||
+            command.scheduled_start_at > 0 ||
+            command.scheduled_end_at > 0
+        )
+        {
+            if (!Timer::isValid())
+            {
+                sendDeviceControlResponse(commandId, gpio,sendTime,"error",
+                    "Cannot execute time-based command: system time has not been synchronized. Please synchronize time before using duration or scheduling parameters."
+                );
+
+                return;
+            }
+        }
+
+        // Kiểm tra GPIO có đang được DeviceManager quản lý không.
+        if (!DeviceManager::hasDevice(gpio))
+        {
+            sendDeviceControlResponse(commandId,gpio,sendTime,"error","GPIO is not configured on this ESP32");
+            return;
+        }
+
+        // Gửi command sang DeviceManager
         bool result = DeviceManager::controlDevice(gpio, command);
 
         // DeviceManager xử lý thành công
-        // → gửi response về Server.
         if (result)
         {
-            sendDeviceControlResponse(commandId, gpio, sendTime);
+            sendDeviceControlResponse(commandId, gpio, sendTime,"success", "Device controlled successfully");
         }
+        else
+        {
+            sendDeviceControlResponse(commandId, gpio, sendTime, "error", "Failed to control device");
+        }
+
+  
     }
 
     // ========================================================
@@ -466,25 +585,64 @@ namespace
 
     void mqttCallback(char *topic, byte *payload, unsigned int length)
     {
-        // 20.1. Copy payload vào buffer
+        Serial.println("\n========== MQTT MESSAGE RECEIVED ==========");
+        Serial.printf("[TOPIC] %s\n", topic);
+        Serial.printf("[LENGTH] %u bytes\n", length);
+
         char buffer[2048];
-        if (length >= sizeof(buffer)) return; // JSON quá lớn → bỏ qua.
+
+        if (length >= sizeof(buffer))
+        {
+            Serial.println("[ERROR] Payload too large");
+            return;
+        }
         memcpy(buffer,payload,length);
 
         // Thêm '\0' để buffer trở thành C-string.
         buffer[length] = '\0';
 
+        Serial.printf("[PAYLOAD] %s\n", buffer);
+
         // 20.2. Parse JSON
         JsonDocument doc;
         DeserializationError error = deserializeJson(doc, buffer);
-        if (error) return; // JSON không hợp lệ.
+        if (error)
+        {
+            Serial.printf("[ERROR] JSON parse failed: %s\n", error.c_str());
+            return;
+        }
+
         JsonObject root = doc.as<JsonObject>();
 
         // 20.25 tiền kiểm tra microcontroller_id
-        if (!root["microcontroller_id"].is<const char *>()) return;
+        Serial.println("[CHECK] Checking microcontroller_id...");
+        if (!root["microcontroller_id"].is<const char *>())
+        {
+            Serial.println("[ERROR] Missing or invalid microcontroller_id");
+            return;
+        }
 
         const char *microcontrollerId = root["microcontroller_id"];
         String esp32Mac = WiFiManager::getMAC();
+
+        Serial.printf("[CHECK] Server MAC: [%s]\n", microcontrollerId);
+        Serial.printf("[CHECK] ESP32 MAC:  [%s]\n", esp32Mac.c_str());
+
+        bool sameMac = Utils::isSameMac(microcontrollerId,esp32Mac.c_str());
+
+        Serial.printf("[CHECK] MAC comparison: %s\n",sameMac ? "MATCH" : "NOT MATCH");
+
+        if (!sameMac)
+        {
+            Serial.println("[ERROR] microcontroller_id does not match ESP32 MAC");
+            Serial.println("[ERROR] Message ignored");
+            return;
+        }
+
+        Serial.println("[CHECK] MAC matched");
+
+        // 20.3. Kiểm tra topic
+        Serial.println("[CHECK] Checking command topic...");
 
         if (!Utils::isSameMac(microcontrollerId, esp32Mac.c_str())) return;
 
@@ -540,8 +698,15 @@ namespace
         // 21.1. MQTT chỉ có thể kết nối khi WiFi đã connected.
         if (!WiFiManager::isConnected()) return false;
 
+        _wifiClient.setInsecure();
         // sau đó tạo Client ID.
         buildClientId();
+
+        Serial.println("\n========== MQTT CONNECT ==========");
+        Serial.printf("[MQTT] Client ID: %s\n", _clientId);
+        Serial.printf("[MQTT] Subscribe command topic: %s\n", _commandSubscribeTopic);
+        Serial.printf("[MQTT] Subscribe configuration topic: %s\n", _configurationSubscribeTopic);
+        
         bool connected;
 
         // 21.2. Kết nối có username/password
@@ -554,24 +719,41 @@ namespace
         else connected = _mqttClient.connect(_clientId);
 
         // Kết nối thất bại.
-        if (!connected)return false;
+        if (!connected)
+        {
+            Serial.printf("[MQTT] Ket noi that bai. State: %d\n", _mqttClient.state());
+            Serial.println("==================================");
+            return false;
+        }
 
-
+        Serial.println("[MQTT] Ket noi broker thanh cong.");
         // 21.2. Subscribe command và Subscribe configuration
         bool commandSubscribed =_mqttClient.subscribe(_commandSubscribeTopic);
         bool configurationSubscribed =_mqttClient.subscribe(_configurationSubscribeTopic);
 
+        Serial.printf("[MQTT] Subscribe command: %s\n", commandSubscribed ? "SUCCESS" : "FAILED");
+        Serial.printf("[MQTT] Subscribe configuration: %s\n", configurationSubscribed ? "SUCCESS" : "FAILED");
+
         // Nếu subscribe thất bại → disconnect.
         if (!commandSubscribed || !configurationSubscribed)
         {
+            Serial.println("[MQTT] Subscribe that bai. Ngat ket noi.");
             _mqttClient.disconnect();
+            Serial.println("==================================");
             return false;
         }
 
 
         // 21.3. MQTT kết nối thành công.
+        Serial.println("[MQTT] Da subscribe thanh cong cac topic:");
+        Serial.printf("  - %s\n", _commandSubscribeTopic);
+        Serial.printf("  - %s\n", _configurationSubscribeTopic);
+
         // Yêu cầu Server gửi thời gian hiện tại.
+        Serial.println("[MQTT] Gui REFRESH_TIME_REQUEST...");
         sendRefreshTimeRequest();
+
+        Serial.println("==================================");
         return true;
     }
 
@@ -594,7 +776,10 @@ namespace
             if (!WiFiManager::isConnected())
             {
                 // WiFi mất thì MQTT cũng không thể hoạt động.
-                if (_mqttClient.connected()) _mqttClient.disconnect();
+                if (_mqttClient.connected())
+                {
+                    _mqttClient.disconnect();
+                }
 
                 // Chờ một chút rồi kiểm tra lại.
                 vTaskDelay(pdMS_TO_TICKS(MQTT_TASK_TICK_MS));
@@ -606,14 +791,19 @@ namespace
             // WiFi connected nhưng MQTT chưa connected
             if (!_mqttClient.connected())
             {
+                Serial.println("[STATUS MQTT] taskLoop(): MQTT disconnected");
                 unsigned long now = millis();
-
 
                 // Chưa đủ 5 giây thì chưa reconnect.
                 if (now - _lastReconnectAttempt >= MQTT_RECONNECT_INTERVAL_MS)
                 {
                     _lastReconnectAttempt = now;
-                    connectMQTT();
+                    Serial.println("[MQTT] taskLoop(): Attempting to connect to HiveMQ...");
+
+                    if (!connectMQTT())
+                    {
+                        Serial.printf("[MQTT] Connection failed. State: %d\n", _mqttClient.state());
+                    }
                 }
             }
 
@@ -621,6 +811,14 @@ namespace
             // MQTT đang connected
             else
             {
+                unsigned long now = millis();
+
+                if (now - _lastReconnectAttempt >= MQTT_RECONNECT_INTERVAL_MS)
+                {
+                    _lastReconnectAttempt = now;
+                    Serial.println("[STATUS] MQTT connected to HiveMQ");
+                }
+
                 _mqttClient.loop();
             }
 
@@ -666,6 +864,14 @@ namespace MQTTManager
         // Cấu hình MQTT Broker.
         _mqttClient.setServer(MQTT_BROKER, MQTT_PORT);
 
+        // Tăng buffer để chứa MQTT packet gồm header, topic và payload.
+        if (!_mqttClient.setBufferSize(2048))
+        {
+            Serial.println("[MQTT ERROR] Cannot allocate MQTT buffer");
+            return false;
+        }
+
+        Serial.printf("[MQTT] Buffer size: %u bytes\n", _mqttClient.getBufferSize());
 
         // Đăng ký callback.
         // Khi MQTT nhận message: → mqttCallback()
@@ -731,6 +937,13 @@ namespace MQTTManager
         return _clientId;
     }
 
+    void printSubscribedTopics()
+    {
+        Serial.println("\n========== MQTT SUBSCRIBED TOPICS ==========");
+        Serial.printf("[MQTT] Command topic: %s\n", _commandSubscribeTopic);
+        Serial.printf("[MQTT] Configuration topic: %s\n", _configurationSubscribeTopic);
+        Serial.println("============================================\n");
+    }
 
 }
 

@@ -97,18 +97,26 @@ namespace Utils
         uint8_t index1 = 0;
         uint8_t index2 = 0;
 
-        // Xóa ':' khỏi MAC thứ nhất.
+        // Bỏ khoảng trắng đầu chuỗi MAC thứ nhất.
+        while (isspace((unsigned char)*mac1)) mac1++;
+
+        // Xóa ':' và bỏ khoảng trắng cuối chuỗi MAC thứ nhất.
         for (const char *p = mac1; *p != '\0'; ++p)
         {
             if (*p == ':') continue;
+            if (isspace((unsigned char)*p)) continue;
             if (index1 >= sizeof(normalized1) - 1) return false;
             normalized1[index1++] = *p;
         }
+
+        // Bỏ khoảng trắng đầu chuỗi MAC thứ hai.
+        while (isspace((unsigned char)*mac2)) mac2++;
 
         // Xóa ':' khỏi MAC thứ hai.
         for (const char *p = mac2; *p != '\0'; ++p)
         {
             if (*p == ':') continue;
+            if (isspace((unsigned char)*p)) continue;
             if (index2 >= sizeof(normalized2) - 1) return false;
             normalized2[index2++] = *p;
         }
