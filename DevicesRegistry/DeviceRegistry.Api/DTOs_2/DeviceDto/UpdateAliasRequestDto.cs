@@ -1,10 +1,21 @@
+
+using System.ComponentModel.DataAnnotations;
+
 namespace DeviceRegistry.Api.DTOs;
-// để thêm từ đồng nghĩa vào user -> tag->grouptag
+
 public class UpdateAliasRequestDto
 {
-    //TODO: 
-    // 1. UserId
-    // 2. List<string> new tags
-    // 3. old tags
+    // Tag đã tồn tại trong một TagGroup.
+    //
+    // Ví dụ: "phòng bếp".
+    [Required]
+    public string ExistingTag { get; set; } = string.Empty;
 
+    // Tag đồng nghĩa cần thêm.
+    //
+    // Ví dụ: "nhà bếp".
+    [Required]
+    public string NewTag { get; set; } = string.Empty;
+
+    // Không có UserId vì lấy từ JWT.
 }

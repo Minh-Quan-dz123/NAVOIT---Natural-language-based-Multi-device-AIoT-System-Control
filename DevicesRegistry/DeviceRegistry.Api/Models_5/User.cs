@@ -15,10 +15,10 @@ public class User
     public int Id { get; set; }
 
     // User information
-    public string Username { get; set; } = string.Empty;
+    public string Username { get; set; } = "";
 
     // Store the password hash, not the plaintext password
-    public string Password { get; set; } = string.Empty;
+    public string Password { get; set; } = "";
 
     public string? Phone { get; set; }
 

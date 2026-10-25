@@ -1,0 +1,70 @@
+# ==========================
+# 1. Build outputs
+# ==========================
+bin/
+obj/
+Debug/
+Release/
+publish/
+artifacts/
+
+# ==========================
+# 2. Visual Studio / VS Code
+# ==========================
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# ==========================
+# 3. .NET temporary files
+# ==========================
+*.pdb
+*.cache
+*.tmp
+*.log
+TestResults/
+coverage/
+coverage.*
+
+# ==========================
+# 4. NuGet
+# ==========================
+*.nupkg
+*.snupkg
+packages/
+
+# ==========================
+# 5. Environment / Secrets
+# ==========================
+.env
+.env.*
+!.env.example
+
+appsettings.Development.json
+appsettings.Local.json
+appsettings.*.local.json
+
+# ==========================
+# 6. Database
+# ==========================
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# ==========================
+# 7. OS files
+# ==========================
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ==========================
+# 8. Docker
+# ==========================
+docker-compose.override.yml

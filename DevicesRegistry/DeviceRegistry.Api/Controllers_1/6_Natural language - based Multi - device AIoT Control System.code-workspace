@@ -1,0 +1,14 @@
+{
+	"folders": [
+		{
+			"path": "../../.."
+		},
+		{
+			"name": "DevicesManager",
+			"path": "../../../../../DevicesManager"
+		}
+	],
+	"settings": {
+		"git.ignoreLimitWarning": true
+	}
+}

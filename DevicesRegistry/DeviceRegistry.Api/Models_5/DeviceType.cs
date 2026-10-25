@@ -17,6 +17,5 @@ public class DeviceType
     public string AllowedStatuses { get; set; } = "[]";
 
     // 1 DeviceType -> N Device
-    public ICollection<Device> Devices { get; set; }
-        = new List<Device>();
+    public ICollection<Device> Devices { get; set; } = new List<Device>();
 }
