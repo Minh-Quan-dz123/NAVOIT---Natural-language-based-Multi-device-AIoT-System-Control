@@ -1,0 +1,40 @@
+
+{
+  "model_name": "vinai/phobert-base-v2",
+  "intents": [
+    "TURN_ON",
+    "TURN_OFF",
+    "CANCEL_SCHEDULE",
+    "QUERY_STATUS",
+    "NO_ACTION",
+    "UNKNOWN"
+  ],
+  "device_tag_labels": [
+    "O",
+    "B-TAG",
+    "I-TAG"
+  ],
+  "time_tag_labels": [
+    "O",
+    "B-DURATION",
+    "I-DURATION",
+    "B-SCHEDULED_DELAY",
+    "I-SCHEDULED_DELAY",
+    "B-SCHEDULED_START_AT",
+    "I-SCHEDULED_START_AT",
+    "B-SCHEDULED_END_AT",
+    "I-SCHEDULED_END_AT"
+  ],
+  
+    "annotation_policy": {
+        "offsets": "Vị trí ký tự [start, end) được tính trên chuỗi văn bản gốc đã chuẩn hóa Unicode NFC. start là vị trí bắt đầu, end là vị trí ngay sau ký tự cuối cùng.",
+        "device_spans": "Mỗi tên thiết bị, đặc điểm thiết bị, phòng hoặc tầng được đánh dấu thành một TAG độc lập. Không phân loại riêng thiết bị và vị trí.",
+        "schedule_spans": "Đánh dấu các biểu thức thời gian, bao gồm giá trị và thông tin ngày cần thiết. Loại bỏ các từ liên kết như sau, trong, lúc, đến nếu không cần thiết.",
+        "multi_intent": "Kiến trúc hiện tại chỉ hỗ trợ một intent cho mỗi câu. Những câu chứa nhiều hành động mâu thuẫn hoặc không thể xác định một intent duy nhất được gán UNKNOWN và không tự động thực thi.",
+        "safe_intents": "Các intent NO_ACTION và UNKNOWN không được chuyển thành lệnh điều khiển thiết bị vật lý.",
+        "time_semantics": "DURATION là khoảng thời gian duy trì hành động; SCHEDULED_DELAY là khoảng thời gian chờ trước khi bắt đầu; SCHEDULED_START_AT và SCHEDULED_END_AT là các biểu thức chỉ thời điểm bắt đầu và kết thúc, được xử lý sau dựa trên múi giờ và thời gian tham chiếu."
+        }
+
+  
+}
+

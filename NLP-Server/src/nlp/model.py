@@ -172,9 +172,9 @@ class SmartHomePhoBERT(nn.Module):
     # Hàm khởi tạo
     def __init__(
         self,
-        num_intents: int,
-        num_tag_labels: int,
-        num_time_labels: int,
+        num_intents: int = 6,
+        num_tag_labels: int = 3,
+        num_time_labels: int = 9,
         model_name: str = "vinai/phobert-base-v2",
         freeze_encoder: bool = True
     ):

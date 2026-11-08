@@ -1,0 +1,50 @@
+{
+  "intent2id": {
+    "TURN_ON": 0,
+    "TURN_OFF": 1,
+    "CANCEL_SCHEDULE": 2,
+    "NO_ACTION": 3,
+    "QUERY_STATUS": 4,
+    "UNKNOWN": 5
+  },
+  "id2intent": {
+    "0": "TURN_ON",
+    "1": "TURN_OFF",
+    "2": "CANCEL_SCHEDULE",
+    "3": "NO_ACTION",
+    "4": "QUERY_STATUS",
+    "5": "UNKNOWN"
+  },
+  "tag2id": {
+    "O": 0,
+    "B-TAG": 1,
+    "I-TAG": 2
+  },
+  "id2tag": {
+    "0": "O",
+    "1": "B-TAG",
+    "2": "I-TAG"
+  },
+  "time2id": {
+    "O": 0,
+    "B-DURATION": 1,
+    "I-DURATION": 2,
+    "B-SCHEDULED_DELAY": 3,
+    "I-SCHEDULED_DELAY": 4,
+    "B-SCHEDULED_START_AT": 5,
+    "I-SCHEDULED_START_AT": 6,
+    "B-SCHEDULED_END_AT": 7,
+    "I-SCHEDULED_END_AT": 8
+  },
+  "id2time": {
+    "0": "O",
+    "1": "B-DURATION",
+    "2": "I-DURATION",
+    "3": "B-SCHEDULED_DELAY",
+    "4": "I-SCHEDULED_DELAY",
+    "5": "B-SCHEDULED_START_AT",
+    "6": "I-SCHEDULED_START_AT",
+    "7": "B-SCHEDULED_END_AT",
+    "8": "I-SCHEDULED_END_AT"
+  }
+}
