@@ -1,0 +1,36 @@
+
+@startuml
+title Nhóm module quản lý dữ liệu và API
+
+top to bottom direction
+skinparam packageStyle rectangle
+skinparam linetype ortho
+skinparam shadowing false
+hide empty members
+
+package "API Layer" {
+    class Controllers
+    class DTOs
+    class JWTAuthentication
+}
+
+package "Business Layer" {
+    class Services
+}
+
+package "Data Access Layer" {
+    class AppDbContext
+}
+
+package "Domain Layer" {
+    class Entities
+}
+
+Controllers ..> JWTAuthentication : xác thực
+Controllers ..> DTOs : sử dụng
+Controllers ..> Services : gọi
+
+Services ..> AppDbContext : truy cập dữ liệu
+AppDbContext ..> Entities : quản lý
+
+@enduml

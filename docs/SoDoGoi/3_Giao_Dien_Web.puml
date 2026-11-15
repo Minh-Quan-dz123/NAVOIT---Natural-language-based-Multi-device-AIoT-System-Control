@@ -1,0 +1,33 @@
+
+@startuml
+title Thiết kế giao diện Web quản lý và điều khiển
+
+skinparam shadowing false
+skinparam rectangle {
+  BackgroundColor White
+  BorderColor #555555
+  RoundCorner 8
+}
+
+rectangle "WEB SMART HOME" {
+    rectangle "HEADER\nTên hệ thống | Tài khoản" as Header
+
+    rectangle "MENU\nTổng quan\nVi điều khiển\nThiết bị\nThẻ mô tả\nLịch điều khiển" as Menu
+
+    rectangle "ĐIỀU KHIỂN BẰNG NGÔN NGỮ TỰ NHIÊN\n\nNhập câu lệnh tiếng Việt\n[ Bật đèn phòng khách sau 10 phút ]\n\n[ GỬI LỆNH ]" as Input
+
+    rectangle "KẾT QUẢ XỬ LÝ\nIntent\nDevice Tags\nSchedule\nThiết bị được xác định\nTrạng thái xử lý" as Result
+
+    rectangle "DANH SÁCH THIẾT BỊ\nTên | Loại | MCU | GPIO | Trạng thái" as Devices
+}
+
+Header -[hidden]down- Menu
+Menu -[hidden]right- Input
+Input -[hidden]down- Result
+Result -[hidden]down- Devices
+
+note bottom
+Bản phác thảo giao diện ở giai đoạn thiết kế.
+Không phải ảnh chụp phần mềm đã triển khai.
+end note
+@enduml

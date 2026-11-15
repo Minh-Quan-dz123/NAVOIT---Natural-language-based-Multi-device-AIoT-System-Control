@@ -1,11 +1,8 @@
 
-using System.Security.Cryptography;
-using System.Text;
-
 using DeviceRegistry.Api.Data;
 using DeviceRegistry.Api.DTOs;
-using DeviceRegistry.Api.Services;
 
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
@@ -14,73 +11,26 @@ using Npgsql;
 namespace DeviceRegistry.Api.Controllers;
 
 [ApiController]
+[Authorize(Policy = "NlpServerOnly")]
 [Route("api/internal")]
 public class InternalSyncController : ControllerBase
 {
     private readonly AppDbContext _context;
-    private readonly ScheduleServices _scheduleService;
-    private readonly IConfiguration _configuration;
 
-    // 1. CONSTRUCTOR
-
-    public InternalSyncController(
-        AppDbContext context,
-        ScheduleServices scheduleService,
-        IConfiguration configuration
-    )
+    public InternalSyncController(AppDbContext context)
     {
         _context = context;
-        _scheduleService = scheduleService;
-        _configuration = configuration;
     }
 
-    // 2. KIỂM TRA INTERNAL API KEY
-
-    private bool IsInternalAuthorized()
-    {
-        // Không dùng JWT của User cho API này.
-        // Chỉ NLP Server được biết InternalApiKey.
-
-        var expectedKey = _configuration["InternalApiKey"];
-
-        if (string.IsNullOrWhiteSpace(expectedKey))
-            return false;
-
-        if (!Request.Headers.TryGetValue(
-            "X-Internal-Key",
-            out var providedKey
-        ))
-        {
-            return false;
-        }
-
-        var expectedBytes = Encoding.UTF8.GetBytes(expectedKey);
-        var providedBytes = Encoding.UTF8.GetBytes(
-            providedKey.ToString()
-        );
-
-        // So sánh constant-time, tránh so sánh
-        // secret theo cách dừng tại ký tự khác đầu tiên.
-        return CryptographicOperations.FixedTimeEquals(
-            expectedBytes,
-            providedBytes
-        );
-    }
-
-    // ==========================================
-    // 3. UPDATE DEVICE BINDING
-    // PATCH /api/internal/devices/{id}/binding
-    // ==========================================
+    // 1. CẬP NHẬT LIÊN KẾT DEVICE - MCU - GPIO
+    // PATCH /api/internal/devices/{deviceId}/binding
 
     [HttpPatch("devices/{deviceId:int}/binding")]
     public async Task<IActionResult> UpdateBinding(
         int deviceId,
-        [FromBody] UpdateDeviceBindingRequestDto request
-    )
+        [FromBody] UpdateDeviceBindingRequestDto request)
     {
-        if (!IsInternalAuthorized())return Unauthorized();
-
-        // MCU và GPIO phải cùng có giá trị hoặc cùng null.
+        // MCU và GPIO phải cùng null hoặc cùng có giá trị.
         if (request.MicrocontrollerId.HasValue != request.Gpio.HasValue)
         {
             return BadRequest(new
@@ -89,105 +39,119 @@ public class InternalSyncController : ControllerBase
             });
         }
 
-        if (request.Gpio < 0) return BadRequest(new { message = "GPIO không hợp lệ." });
+        if (request.Gpio.HasValue && request.Gpio.Value < 0)
+        {
+            return BadRequest(new
+            {
+                message = "GPIO không hợp lệ."
+            });
+        }
 
-        // 3.1. Kiểm tra Device thuộc User.
+        // 1.1. Tìm Device thuộc User
         var device = await _context.Devices
-            .Include(d => d.Schedule)
             .FirstOrDefaultAsync(d =>
                 d.Id == deviceId &&
-                d.UserId == request.UserId
-            );
+                d.UserId == request.UserId);
 
         if (device == null)
-            return NotFound(new { message = "Không tìm thấy Device." });
+        {
+            return NotFound(new
+            {
+                message = "Không tìm thấy Device."
+            });
+        }
 
-        // 3.2. Lưu thông tin liên kết cũ.
-        var oldMicrocontrollerId = device.MicrocontrollerId;
-        var oldGpio = device.Gpio;
+        // 1.2. Lưu liên kết cũ
+        int? oldMicrocontrollerId = device.MicrocontrollerId;
+        int? oldGpio = device.Gpio;
 
-        // 3.3. Kiểm tra MCU đích.
+        // 1.3. Kiểm tra MCU đích nếu có
         if (request.MicrocontrollerId.HasValue)
         {
-            var mcuId = request.MicrocontrollerId.Value;
+            int mcuId = request.MicrocontrollerId.Value;
 
             var mcu = await _context.Microcontrollers
                 .FirstOrDefaultAsync(m =>
                     m.Id == mcuId &&
-                    m.UserId == request.UserId
-                );
+                    m.UserId == request.UserId);
 
             if (mcu == null)
+            {
                 return BadRequest(new
                 {
                     message = "Microcontroller không tồn tại hoặc không thuộc User."
                 });
+            }
 
-            // Không cho hai Device chiếm cùng GPIO.
-            var gpioUsed = await _context.Devices
+            // Kiểm tra GPIO đã có thiết bị khác sử dụng
+            bool gpioUsed = await _context.Devices
                 .AnyAsync(d =>
                     d.Id != deviceId &&
                     d.MicrocontrollerId == mcuId &&
-                    d.Gpio == request.Gpio
-                );
+                    d.Gpio == request.Gpio);
 
-            if (gpioUsed) return Conflict(new
-                {
-                    message = "GPIO đang được Device khác sử dụng."
-                });
-
-            // Giới hạn firmware ESP32 hiện tại.
-            if (mcu.Type.Equals(
-                "esp32",
-                StringComparison.OrdinalIgnoreCase
-            ))
+            if (gpioUsed)
             {
-                var count = await _context.Devices
+                return Conflict(new
+                {
+                    message = "GPIO đã được Device khác sử dụng."
+                });
+            }
+
+            // Giới hạn ESP32 tối đa 6 Device
+            if (string.Equals(
+                mcu.Type,
+                "esp32",
+                StringComparison.OrdinalIgnoreCase))
+            {
+                int count = await _context.Devices
                     .CountAsync(d =>
                         d.MicrocontrollerId == mcuId &&
-                        d.Id != deviceId
-                    );
+                        d.Id != deviceId);
 
                 if (count >= 6)
+                {
                     return Conflict(new
                     {
                         message = "ESP32 đã đạt giới hạn 6 Device."
                     });
+                }
             }
         }
 
-        // 3.4. Chỉ lưu sau khi NLP Server đã hoàn tất
-        // các thao tác vật lý liên quan.
+        // 1.4. Cập nhật liên kết
         //
-        // Ví dụ chuyển MCU A -> B:
-        // - NLP gửi DELETE tới A.
-        // - NLP xác minh DeviceTask cũ đã bị xóa.
-        // - NLP gửi CREATE tới B.
-        // - NLP xác minh DeviceTask mới đã được tạo.
-        // - Cuối cùng mới gọi API này.
+        // API này chỉ được NLP Server gọi sau khi
+        // ESP32 đã xác nhận thao tác phần cứng thành công.
         //
-        // Registry KHÔNG gửi MQTT tại đây.
+        // Registry không tự gửi MQTT.
+
         device.MicrocontrollerId = request.MicrocontrollerId;
         device.Gpio = request.Gpio;
 
-        device.SyncStatus = request.MicrocontrollerId.HasValue ? "synced" : "unassigned";
-
-        // Không thể lấy trạng thái ON/OFF cũ làm
-        // trạng thái chắc chắn của liên kết mới.
-        device.CurrentStatus = "UNKNOWN";
-        device.StatusUpdatedAt = null;
-
-        if (
-            device.Schedule != null &&
-            (oldMicrocontrollerId != request.MicrocontrollerId ||
-             oldGpio != request.Gpio)
-        )
+        if (request.MicrocontrollerId.HasValue)
         {
-            // Không tự chuyển Schedule sang MCU mới.
-            // Firmware cũ phải được xử lý trước khi gọi API.
-            device.Schedule.SyncStatus = "unknown";
-            device.Schedule.UpdatedAt = DateTime.UtcNow;
+            device.SyncStatus = "synced";
         }
+        else
+        {
+            device.SyncStatus = "unassigned";
+        }
+
+        // Nếu thay đổi liên kết, trạng thái vật lý cũ
+        // không còn là thông tin đáng tin cậy.
+        bool bindingChanged =
+            oldMicrocontrollerId != request.MicrocontrollerId ||
+            oldGpio != request.Gpio;
+
+        if (bindingChanged)
+        {
+            device.CurrentStatus = "UNKNOWN";
+            device.StatusUpdatedAt = null;
+        }
+
+        // Không thay đổi Schedule tại đây.
+        // Đồng bộ lịch sẽ được xử lý riêng.
 
         try
         {
@@ -195,8 +159,7 @@ public class InternalSyncController : ControllerBase
         }
         catch (DbUpdateException ex) when (
             ex.InnerException is PostgresException pg &&
-            pg.SqlState == PostgresErrorCodes.UniqueViolation
-        )
+            pg.SqlState == PostgresErrorCodes.UniqueViolation)
         {
             return Conflict(new
             {
@@ -215,69 +178,82 @@ public class InternalSyncController : ControllerBase
         });
     }
 
-    // 4. REPORT DEVICE STATUS
-    // PUT /api/internal/devices/{id}/status
-
+    // 2. CẬP NHẬT TRẠNG THÁI DEVICE
+    // PUT /api/internal/devices/{deviceId}/status
     [HttpPut("devices/{deviceId:int}/status")]
     public async Task<IActionResult> ReportDeviceStatus(
         int deviceId,
-        [FromBody] ReportDeviceStatusRequestDto request
-    )
+        [FromBody] ReportDeviceStatusRequestDto request)
     {
-        if (!IsInternalAuthorized())return Unauthorized();
+        // 2.1. Kiểm tra SyncStatus
+        string syncStatus = request.SyncStatus
+            .Trim()
+            .ToLowerInvariant();
 
-        // Chỉ cho phép ba trạng thái kết quả.
-        // "pending" được quản lý khi tạo request,
-        // không phải trạng thái kết quả từ firmware.
-        var syncStatus = request.SyncStatus.Trim().ToLowerInvariant();
-
-        if (
-            syncStatus != "synced" &&
+        if (syncStatus != "synced" &&
             syncStatus != "out_of_sync" &&
-            syncStatus != "error"
-        )
+            syncStatus != "error")
         {
-            return BadRequest(new{ message = "SyncStatus không hợp lệ."});
+            return BadRequest(new
+            {
+                message = "SyncStatus không hợp lệ."
+            });
         }
 
-        // 4.1. Tìm đúng Device của User.
-        var device = await _context.Devices
-            .FirstOrDefaultAsync(d =>
-                d.Id == deviceId &&
-                d.UserId == request.UserId
-            );
+        // 2.2. Kiểm tra CurrentStatus nếu được gửi
+        string? currentStatus = null;
 
-        if (device == null) return NotFound();
-
-        // 4.2. Kiểm tra vị trí phần cứng hiện tại.
-        //
-        // Chống việc response cũ từ GPIO/MCU trước đó
-        // cập nhật nhầm Device sau khi đã chuyển GPIO.
-        if (
-            device.MicrocontrollerId != request.MicrocontrollerId ||
-            device.Gpio != request.Gpio
-        )
-        {
-            return Conflict(new{message = "MCU/GPIO không khớp với liên kết hiện tại."});
-        }
-
-        // 4.3. Cập nhật kết quả đồng bộ.
-        device.SyncStatus = syncStatus;
-
-        // Chỉ cập nhật CurrentStatus khi có báo cáo
-        // trạng thái thực tế đáng tin cậy từ ESP32.
         if (request.CurrentStatus != null)
         {
-            var status = request.CurrentStatus
+            currentStatus = request.CurrentStatus
                 .Trim()
                 .ToUpperInvariant();
 
-            if (status != "ON" &&status != "OFF" && status != "UNKNOWN")
+            if (currentStatus != "ON" &&
+                currentStatus != "OFF" &&
+                currentStatus != "UNKNOWN")
             {
-                return BadRequest(new{message = "CurrentStatus không hợp lệ."});
+                return BadRequest(new
+                {
+                    message = "CurrentStatus không hợp lệ."
+                });
             }
+        }
 
-            device.CurrentStatus = status;
+        // 2.3. Tìm Device thuộc User
+        var device = await _context.Devices
+            .FirstOrDefaultAsync(d =>
+                d.Id == deviceId &&
+                d.UserId == request.UserId);
+
+        if (device == null)
+        {
+            return NotFound(new
+            {
+                message = "Không tìm thấy Device."
+            });
+        }
+
+        // 2.4. Kiểm tra MCU/GPIO hiện tại
+        //
+        // Không cho phản hồi từ liên kết cũ
+        // cập nhật nhầm trạng thái liên kết mới.
+        if (device.MicrocontrollerId != request.MicrocontrollerId ||
+            device.Gpio != request.Gpio)
+        {
+            return Conflict(new
+            {
+                message = "MCU/GPIO không khớp với liên kết hiện tại."
+            });
+        }
+
+        // 2.5. Cập nhật trạng thái đồng bộ
+        device.SyncStatus = syncStatus;
+
+        // 2.6. Cập nhật trạng thái vật lý nếu được báo cáo
+        if (currentStatus != null)
+        {
+            device.CurrentStatus = currentStatus;
             device.StatusUpdatedAt = DateTime.UtcNow;
         }
 
@@ -292,37 +268,33 @@ public class InternalSyncController : ControllerBase
         });
     }
 
-    // 5. REFRESH DEVICE LIST
-    // POST /api/internal/microcontrollers/{id}/refresh
+    // 3. NHẬN THÔNG TIN ĐỐI SOÁT TỪ ESP32
+    // POST /api/internal/microcontrollers/{mcuId}/refresh
 
     [HttpPost("microcontrollers/{mcuId:int}/refresh")]
-    public async Task<IActionResult> RefreshDevices(int mcuId,[FromBody] RefreshDevicesRequestDto request)
+    public async Task<IActionResult> RefreshDevices(
+        int mcuId,
+        [FromBody] RefreshDevicesRequestDto request)
     {
-        if (!IsInternalAuthorized()) return Unauthorized();
-
-        // 5.1. Tìm MCU thuộc User.
+        // 3.1. Tìm MCU thuộc User
         var mcu = await _context.Microcontrollers
             .FirstOrDefaultAsync(m =>
                 m.Id == mcuId &&
-                m.UserId == request.UserId
-            );
+                m.UserId == request.UserId);
 
-        if (mcu == null)return NotFound(new{message = "Không tìm thấy Microcontroller."});
-
-        // 5.2. Kiểm tra định danh phần cứng.
-        //
-        // MAC có thể được viết có hoặc không có dấu ':'.
-        // Chuẩn hóa để so sánh.
-        static string NormalizeId(string value)
+        if (mcu == null)
         {
-            return value.Trim()
-                .Replace(":", "")
-                .Replace("-", "")
-                .ToUpperInvariant();
+            return NotFound(new
+            {
+                message = "Không tìm thấy Microcontroller."
+            });
         }
 
-        if (NormalizeId(mcu.MacAddress) !=
-            NormalizeId(request.HardwareId))
+        // 3.2. Xác minh MAC
+        string hardwareId = NormalizeHardwareId(request.HardwareId);
+        string registeredId = NormalizeHardwareId(mcu.MacAddress);
+
+        if (hardwareId != registeredId)
         {
             return Conflict(new
             {
@@ -330,98 +302,108 @@ public class InternalSyncController : ControllerBase
             });
         }
 
-        // 5.3. Kiểm tra số lượng phần tử trong
-        // các mảng song song từ firmware.
-        var n = request.DeviceCount;
+        // 3.3. Kiểm tra số lượng Device
+        int count = request.DeviceCount;
 
-        if (
-            request.Gpios.Count != n ||
-            request.DeviceTypes.Count != n ||
-            request.DeviceNames.Count != n ||
-            request.DeviceStatus.Count != n ||
-            request.Gpios.Distinct().Count() != n
-        )
+        if (request.Gpios.Count != count ||
+            request.DeviceTypes.Count != count ||
+            request.DeviceNames.Count != count ||
+            request.DeviceStatus.Count != count)
         {
             return BadRequest(new
             {
-                message = "REFRESH_DEVICE_RESPONSE không hợp lệ."
+                message = "Số phần tử trong các mảng không khớp DeviceCount."
             });
         }
 
-        if (mcu.Type.Equals("esp32", StringComparison.OrdinalIgnoreCase) && n > 6)
+        // Không được trùng GPIO
+        if (request.Gpios.Distinct().Count() != count)
         {
             return BadRequest(new
             {
-                message = "Số lượng Device vượt giới hạn ESP32."
+                message = "Danh sách GPIO bị trùng."
             });
         }
 
-        // 5.4. Chuẩn hóa status trước khi thay đổi database.
+        // Giới hạn ESP32
+        if (string.Equals(
+            mcu.Type,
+            "esp32",
+            StringComparison.OrdinalIgnoreCase) && count > 6)
+        {
+            return BadRequest(new
+            {
+                message = "Số Device vượt giới hạn ESP32."
+            });
+        }
+
+        // 3.4. Kiểm tra GPIO và DeviceType
+        if (request.Gpios.Any(g => g < 0) ||
+            request.DeviceTypes.Any(string.IsNullOrWhiteSpace))
+        {
+            return BadRequest(new
+            {
+                message = "GPIO hoặc DeviceType không hợp lệ."
+            });
+        }
+
+        // 3.5. Chuẩn hóa trạng thái
         var statuses = request.DeviceStatus
             .Select(s => s?.Trim().ToUpperInvariant())
             .ToList();
 
-        if (
-            request.Gpios.Any(g => g < 0) ||
-            request.DeviceTypes.Any(string.IsNullOrWhiteSpace) ||
-            statuses.Any(s => s != "ON" && s != "OFF")
-        )
+        if (statuses.Any(s => s != "ON" && s != "OFF"))
         {
             return BadRequest(new
             {
-                message = "GPIO, DeviceType hoặc DeviceStatus không hợp lệ."
+                message = "DeviceStatus chỉ được ON hoặc OFF."
             });
         }
 
-        // 5.5. Tạo bảng tra cứu GPIO -> vị trí trong mảng.
-        var indexByGpio = request.Gpios
-            .Select((gpio, index) => new { gpio, index })
-            .ToDictionary(x => x.gpio, x => x.index);
-
-        // 5.6. Lấy các Device đã đăng ký ở MCU này.
+        // 3.6. Lấy toàn bộ Device đã liên kết với MCU
         var devices = await _context.Devices
             .Include(d => d.DeviceType)
-            .Include(d => d.Schedule)
             .Where(d =>
                 d.MicrocontrollerId == mcuId &&
-                d.UserId == request.UserId
-            )
+                d.UserId == request.UserId)
             .ToListAsync();
 
-        var now = DateTime.UtcNow;
-        var matched = new List<int>();
-        var mismatched = new List<int>();
+        var matchedDeviceIds = new List<int>();
+        var mismatchedDeviceIds = new List<int>();
 
+        DateTime now = DateTime.UtcNow;
+
+        // 3.7. Đối chiếu từng Device trên Registry
         foreach (var device in devices)
         {
-            // 5.7. Không tìm thấy GPIO của Device
-            // trong snapshot firmware.
-            if (
-                device.Gpio == null ||
-                !indexByGpio.TryGetValue(
-                    device.Gpio.Value,
-                    out var index
-                )
-            )
-            {
-                // Nếu đang pending CREATE thì có thể
-                // lệnh vẫn chưa được gửi xuống firmware.
-                if (device.SyncStatus != "pending")
-                    device.SyncStatus = "out_of_sync";
+            // Tìm GPIO của Device trong thông tin ESP32
+            int index = -1;
 
-                mismatched.Add(device.Id);
+            if (device.Gpio.HasValue)
+            {
+                index = request.Gpios.IndexOf(device.Gpio.Value);
+            }
+
+            // ESP32 không có GPIO tương ứng
+            if (index == -1)
+            {
+                if (device.SyncStatus != "pending")
+                {
+                    device.SyncStatus = "out_of_sync";
+                }
+
+                mismatchedDeviceIds.Add(device.Id);
                 continue;
             }
 
-            // 5.8. Kiểm tra loại và tên thiết bị.
-            // Không tự ý đổi metadata trong Registry
-            // theo thông tin firmware.
+            // Kiểm tra loại thiết bị
             bool typeMatches = string.Equals(
-                device.DeviceType.TypeName,
+                device.DeviceType?.TypeName,
                 request.DeviceTypes[index]?.Trim(),
                 StringComparison.OrdinalIgnoreCase
             );
 
+            // Kiểm tra tên thiết bị
             bool nameMatches = string.Equals(
                 device.DeviceName?.Trim() ?? "",
                 request.DeviceNames[index]?.Trim() ?? "",
@@ -431,136 +413,56 @@ public class InternalSyncController : ControllerBase
             if (!typeMatches || !nameMatches)
             {
                 device.SyncStatus = "out_of_sync";
-                mismatched.Add(device.Id);
+                mismatchedDeviceIds.Add(device.Id);
                 continue;
             }
 
-            // 5.9. Cấu hình khớp với firmware.
+            // Cấu hình trên Registry và ESP32 khớp
             device.SyncStatus = "synced";
 
-            // Refresh báo cáo trạng thái GPIO hiện tại.
+            // Cập nhật trạng thái vật lý
             device.CurrentStatus = statuses[index]!;
             device.StatusUpdatedAt = now;
 
-            matched.Add(device.Id);
+            matchedDeviceIds.Add(device.Id);
         }
 
-        // 5.10. Những GPIO tồn tại ở ESP32
-        // nhưng chưa được đăng ký trong Registry.
-        //
-        // Không tự tạo Device mới vì thiếu User
-        // cung cấp các mô tả và TagGroup.
+        // 3.8. Tìm GPIO thừa trên ESP32
         var knownGpios = devices
             .Where(d => d.Gpio.HasValue)
             .Select(d => d.Gpio!.Value)
-            .ToHashSet();
-
-        var unknownGpios = request.Gpios
-            .Where(g => !knownGpios.Contains(g))
             .ToList();
 
-        // Có phản hồi refresh hợp lệ từ MCU.
+        var unknownGpios = request.Gpios
+            .Where(gpio => !knownGpios.Contains(gpio))
+            .ToList();
+
+        // 3.9. Cập nhật thông tin kết nối MCU
         mcu.ConnectionStatus = "online";
         mcu.LastSeenAt = now;
 
-        // REFRESH_DEVICE_RESPONSE hiện chưa báo Schedule,
-        // nên tuyệt đối không đánh dấu Schedule đã chạy.
+        // API chỉ ghi nhận kết quả đối soát.
+        // Không tự ý tạo hoặc xóa Device tại đây.
+        // Việc xử lý sai lệch thuộc quy trình đồng bộ riêng.
+
         await _context.SaveChangesAsync();
 
         return Ok(new
         {
             microcontrollerId = mcu.Id,
-            matchedDeviceIds = matched,
-            mismatchedDeviceIds = mismatched,
+            matchedDeviceIds,
+            mismatchedDeviceIds,
             unknownGpios,
             refreshedAt = now
         });
     }
 
-    // 6. REGISTER SCHEDULE COMMAND
-    // POST /api/internal/schedules/{id}/command
-
-    [HttpPost("schedules/{deviceId:int}/command")]
-    public async Task<IActionResult> RegisterScheduleCommand(
-        int deviceId,
-        [FromBody] RegisterScheduleCommandRequestDto request
-    )
+    // 4. HÀM HỖ TRỢ CHUẨN HÓA MAC
+    private static string NormalizeHardwareId(string value)
     {
-        if (!IsInternalAuthorized())return Unauthorized();
-
-        // Kiểm tra Device thuộc User được chỉ định.
-        var belongsToUser = await _context.Devices
-            .AnyAsync(d =>
-                d.Id == deviceId &&
-                d.UserId == request.UserId
-            );
-
-        if (!belongsToUser)return NotFound();
-
-        try
-        {
-            // Ghi command_id trước khi NLP publish MQTT,
-            // giúp đối chiếu response về sau.
-            await _scheduleService.RegisterCommandAsync(
-                deviceId,
-                request.CommandId
-            );
-
-            return NoContent();
-        }
-        catch (KeyNotFoundException ex)
-        {
-            return NotFound(new { message = ex.Message });
-        }
-        catch (ArgumentException ex)
-        {
-            return BadRequest(new { message = ex.Message });
-        }
-        catch (InvalidOperationException ex)
-        {
-            return Conflict(new { message = ex.Message });
-        }
-    }
-
-    // 7. APPLY SCHEDULE ACK
-    // POST /api/internal/schedules/{id}/ack
-    [HttpPost("schedules/{deviceId:int}/ack")]
-    public async Task<IActionResult> ApplyScheduleAck(int deviceId, [FromBody] ScheduleAckRequestDto request)
-    {
-        if (!IsInternalAuthorized())return Unauthorized();
-
-        // Không cho response của User này
-        // cập nhật Schedule của User khác.
-        var belongsToUser = await _context.Devices
-            .AnyAsync(d =>
-                d.Id == deviceId &&
-                d.UserId == request.UserId
-            );
-
-        if (!belongsToUser)return NotFound();
-
-        if (!request.Accepted.HasValue)return BadRequest(new { message = "Thiếu kết quả Accepted."});
-
-        try
-        {
-            // CommandId phải khớp với lịch đang chờ.
-            // Accepted chỉ được lấy từ kết quả xác thực
-            // thực tế của firmware.
-            await _scheduleService.ApplyAcknowledgementAsync(
-                deviceId,
-                request.CommandId,
-                request.Accepted.Value
-            );
-
-            return NoContent();
-        }
-        catch (KeyNotFoundException ex)
-        {
-            return NotFound(new { message = ex.Message });
-        }
-        catch (InvalidOperationException ex)
-        {
-            return Conflict(new { message = ex.Message });
-        }
+        return value.Trim()
+            .Replace(":", "")
+            .Replace("-", "")
+            .ToUpperInvariant();
     }
 }

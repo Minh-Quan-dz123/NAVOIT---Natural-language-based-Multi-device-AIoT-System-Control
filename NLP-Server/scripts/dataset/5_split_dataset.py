@@ -67,18 +67,14 @@ import random
 # Có thể nối đường dẫn bằng toán tử /.
 from pathlib import Path
 
-
 # 2. CẤU HÌNH
-ROOT = Path(__file__).resolve().parents[1]
-
+ROOT = Path(__file__).resolve().parents[2] / "dataset"
 
 # File dataset nguồn đã được validate.
 DATA_FILE = ROOT / "data" / "raw" / "smarthome_seed.jsonl"
 
-
 # Thư mục lưu kết quả sau khi chia.
 OUT = ROOT / "data" / "splits"
-
 
 # Tên của ba tập dữ liệu.
 SPLITS = ("train", "validation", "test")

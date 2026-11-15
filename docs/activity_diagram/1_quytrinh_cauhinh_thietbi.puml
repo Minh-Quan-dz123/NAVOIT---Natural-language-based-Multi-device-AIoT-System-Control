@@ -1,0 +1,44 @@
+
+@startuml
+title Quy trình đăng ký vi điều khiển và cấu hình thiết bị
+
+skinparam shadowing false
+
+|Quản trị viên|
+start
+:Quản lý danh sách vi điều khiển;
+:Cấp hoặc chuyển quyền sử dụng
+vi điều khiển cho người dùng;
+
+|Server|
+:Cập nhật userId
+của vi điều khiển;
+
+|Người dùng|
+:Nhận vi điều khiển;
+:Tham khảo tài liệu hướng dẫn
+và kết nối thiết bị điện;
+:Khai báo thông tin thiết bị
+và chân GPIO trên giao diện;
+
+|Server|
+:Kiểm tra thông tin cấu hình;
+
+if (Thông tin hợp lệ?) then (Có)
+    :Tạo thiết bị với deviceId;
+    :Lưu liên kết thiết bị
+    với vi điều khiển;
+    :Trích xuất thẻ từ mô tả;
+
+    |Người dùng|
+    :Xem và quản lý các thẻ
+    của thiết bị;
+
+    |Server|
+    :Hoàn tất cấu hình thiết bị;
+else (Không)
+    :Thông báo lỗi cấu hình;
+endif
+
+stop
+@enduml

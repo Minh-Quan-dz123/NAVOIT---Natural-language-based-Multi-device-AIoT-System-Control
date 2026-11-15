@@ -1,0 +1,88 @@
+
+@startuml
+title Biểu đồ trình tự điều khiển thiết bị bằng ngôn ngữ tự nhiên
+
+hide footbox
+autonumber
+
+actor "Người dùng" as User
+participant "Web" as Web
+participant "NLP Server" as NLP
+participant "Device Registry Server" as Registry
+participant "ESP32" as ESP
+
+== Phân tích câu lệnh ==
+
+User -> Web : Nhập câu lệnh điều khiển tiếng Việt
+Web -> NLP : Gửi câu lệnh và thông tin xác thực
+
+activate NLP
+
+NLP -> NLP : Tiền xử lý văn bản
+NLP -> NLP : PhoBERT - Dự đoán Intent,\nDevice Tags và Schedule Tags
+
+NLP -> Registry : GET /api/device/catalog
+Registry --> NLP : Danh mục thiết bị và thẻ mô tả
+
+NLP -> NLP : Phân giải thiết bị từ Device Tags
+NLP -> NLP : Xác định hành động điều khiển
+
+alt Xác định được thiết bị và hành động hợp lệ
+
+    == Gửi lệnh tới ESP32 ==
+
+    NLP -> NLP : Tạo command_id và cấu trúc lệnh
+
+    NLP -> ESP : DEVICE_CONTROL_REQUEST\n(action, gpio - qua MQTT)
+
+    activate ESP
+
+    ESP -> ESP : Tiếp nhận và kiểm tra lệnh
+    ESP -> ESP : Thực hiện điều khiển GPIO
+
+    ESP --> NLP : DEVICE_CONTROL_RESPONSE
+
+    deactivate ESP
+
+    NLP -> NLP : Xác minh command_id,\nthiết bị và kết quả xử lý
+
+    alt ESP32 điều khiển thành công
+
+        == Cập nhật Device Registry ==
+
+        NLP -> Registry : PUT /api/internal/devices/{id}/status
+
+        activate Registry
+
+        Registry -> Registry : Kiểm tra thông tin liên kết
+        Registry -> Registry : Cập nhật CurrentStatus và SyncStatus
+
+        Registry --> NLP : Kết quả cập nhật
+
+        deactivate Registry
+
+        alt Registry cập nhật thành công
+            NLP --> Web : Điều khiển thành công
+        else Registry cập nhật thất bại
+            NLP -> NLP : Xử lý khôi phục / đối soát
+            NLP --> Web : Điều khiển đã thực hiện,\nchưa đồng bộ trạng thái
+        end
+
+    else ESP32 thất bại hoặc không xác nhận
+
+        NLP -> NLP : Không cập nhật trạng thái thiết bị
+        NLP --> Web : Điều khiển thất bại hoặc chưa xác định
+
+    end
+
+else Không xác định được thiết bị hoặc hành động
+
+    NLP --> Web : Yêu cầu làm rõ / thông báo lỗi
+
+end
+
+deactivate NLP
+
+Web --> User : Hiển thị kết quả
+
+@enduml

@@ -265,3 +265,44 @@ class SmartHomePhoBERT(nn.Module):
         }
 
 
+
+# Test Forward Pass
+if __name__ == "__main__":
+    import torch
+
+    # B1. Khởi tạo mô hình
+    model = SmartHomePhoBERT(
+        num_intents=6,
+        num_tag_labels=3,
+        num_time_labels=9,
+        freeze_encoder=True
+    )
+
+    # B2. Dữ liệu 2 câu đã kiểm thử ở DataLoader
+    input_ids = torch.tensor([
+        [0, 24583, 1690, 292, 336, 2, 1, 1, 1],
+        [0, 24583, 1690, 292, 336, 12, 504, 436, 2]
+    ])
+
+    attention_mask = torch.tensor([
+        [1, 1, 1, 1, 1, 1, 0, 0, 0],
+        [1, 1, 1, 1, 1, 1, 1, 1, 1]
+    ])
+
+    # B3. Chuyển sang chế độ đánh giá
+    model.eval()
+
+    # B4. Chạy Forward Pass, không tính gradient
+    with torch.no_grad():
+        outputs = model(input_ids, attention_mask)
+
+    # B5. In kết quả
+    for name, tensor in outputs.items():
+        print(name, tensor.shape)
+
+    # B6. Kiểm tra shape
+    assert outputs["intent_logits"].shape == (2, 6)
+    assert outputs["tag_logits"].shape == (2, 9, 3)
+    assert outputs["time_logits"].shape == (2, 9, 9)
+
+    print("\nPASS: Forward Pass thành công!")

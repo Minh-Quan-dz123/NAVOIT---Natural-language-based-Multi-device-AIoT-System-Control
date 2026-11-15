@@ -38,7 +38,7 @@ from string import Formatter
 try:
     SCRIPT_DIR = Path(__file__).resolve().parent
 except NameError:
-    SCRIPT_DIR = Path.cwd() / "scripts"
+    SCRIPT_DIR = Path.cwd() / "scripts" / "dataset"
     if not (SCRIPT_DIR / "seed_config.py").exists():
         SCRIPT_DIR = Path.cwd()
 
@@ -48,7 +48,7 @@ if str(SCRIPT_DIR) not in sys.path:
 
 from seed_config import ACTIONS, DEVICES, LOCATIONS, RANDOM_SEED, TEMPLATES
 
-ROOT = SCRIPT_DIR.parent
+ROOT = SCRIPT_DIR.parents[1] / "dataset"
 OUTPUT = ROOT / "data" / "raw" / "smarthome_seed.jsonl"
 
 

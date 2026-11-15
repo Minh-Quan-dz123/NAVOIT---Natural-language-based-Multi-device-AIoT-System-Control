@@ -12,6 +12,9 @@ Chú ý: Danh sách Location là phẳng theo thiết kế hiện tại. Các t�
 có thể không tự nhiên hoặc mâu thuẫn vị trí; nên duyệt lại dữ liệu trước training.
 """
 
+import re
+import unicodedata
+
 # Danh sách riêng của các thiết bị; KHÔNG ghép cặp cố định với Location.
 DEVICES: list[str] = [
     # Đèn
@@ -120,6 +123,11 @@ TEMPLATES: list[tuple[str, str, str]] = []
 def add(intent: str, family: str, *templates: str) -> None:
     """Lưu các mẫu câu cùng intent, đánh số nhóm như phiên bản ban đầu."""
     for idx, template in enumerate(templates, 1):
+
+        # Chuẩn hóa Unicode NFC
+        template = unicodedata.normalize("NFC", template)
+        template = re.sub(r"\s*([,.?!])\s*", r" \1 ", template)
+        template = " ".join(template.split())
         TEMPLATES.append((intent, f"{family}_{idx:02d}", template))
 
 
@@ -156,6 +164,7 @@ add("TURN_OFF", "off_duration",
     "Ngừng {device} ở {l1} khoảng [[S:DURATION:1 giờ]] .",
     "Cho {device} khu vực {l1} nghỉ [[S:DURATION:5 phút]] .",
     "Tắt {device} tại {l1} [[S:DURATION:30 giây]] rồi mở lại .",
+    "Để {device} ở {l1} tạm ngừng hoạt động trong [[S:DURATION:45 phút]] rồi bật lại .",
 )
 
 # 3. SCHEDULED_DELAY
@@ -171,6 +180,7 @@ add("TURN_OFF", "off_delay",
     "[[S:SCHEDULED_DELAY:1 tiếng]] nữa ngắt {device} tại {l1}",
     "Hẹn tắt {device} ở {l1} sau [[S:SCHEDULED_DELAY:45 phút]]",
     "Đợi [[S:SCHEDULED_DELAY:20 giây]] rồi dừng {device} bên {l1}",
+    "Hẹn [[S:SCHEDULED_DELAY:25 phút]] nữa tắt {device} tại {l1} .",
 )
 
 # 4. SCHEDULED_START_AT
@@ -186,6 +196,7 @@ add("TURN_OFF", "off_start",
     "Hẹn tắt {device} ở {l1} vào [[S:SCHEDULED_START_AT:9 giờ tối]]",
     "Đúng [[S:SCHEDULED_START_AT:6 giờ sáng mai]] ngắt {device} khu vực {l1}",
     "Tắt {device} tại {l1} lúc [[S:SCHEDULED_START_AT:20 giờ 15]]",
+    "Đúng [[S:SCHEDULED_START_AT:19 giờ 30]] hãy tắt {device} ở {l1} .",
 )
 
 # 5. SCHEDULED_END_AT
@@ -198,6 +209,8 @@ add("TURN_ON", "on_end",
 add("TURN_OFF", "off_end",
     "Tắt {device} {l1} tới [[S:SCHEDULED_END_AT:7 giờ sáng mai]]",
     "Cho {device} tại {l1} nghỉ đến [[S:SCHEDULED_END_AT:19 giờ]]",
+    "Ngắt {device} ở {l1} cho đến [[S:SCHEDULED_END_AT:8 giờ sáng mai]] .",
+    "Giữ {device} tại {l1} ở trạng thái tắt tới [[S:SCHEDULED_END_AT:21 giờ]] .",
 )
 
 # 6. DELAY + DURATION
@@ -210,6 +223,8 @@ add("TURN_ON", "on_delay_duration",
 add("TURN_OFF", "off_delay_duration",
     "Sau [[S:SCHEDULED_DELAY:5 phút]] tắt {device} {l1} trong [[S:DURATION:10 phút]]",
     "[[S:SCHEDULED_DELAY:1 giờ]] nữa cho {device} tại {l1} ngừng [[S:DURATION:20 phút]]",
+    "Đợi [[S:SCHEDULED_DELAY:15 phút]] rồi tắt {device} ở {l1} trong [[S:DURATION:30 phút]] .",
+    "Hẹn sau [[S:SCHEDULED_DELAY:1 giờ]] ngắt {device} tại {l1} trong [[S:DURATION:20 phút]] .",
 )
 
 # 7. START_AT + DURATION
@@ -230,6 +245,8 @@ add("TURN_ON", "on_start_end",
 add("TURN_OFF", "off_start_end",
     "Tắt {device} ở {l1} từ [[S:SCHEDULED_START_AT:12 giờ]] đến [[S:SCHEDULED_END_AT:13 giờ]]",
     "Cho {device} khu vực {l1} ngừng hoạt động lúc [[S:SCHEDULED_START_AT:14 giờ]] đến [[S:SCHEDULED_END_AT:15 giờ]]",
+    "Giữ {device} tại {l1} ở trạng thái tắt từ [[S:SCHEDULED_START_AT:8 giờ]] đến [[S:SCHEDULED_END_AT:10 giờ]] .",
+    "Ngắt {device} ở {l1} từ [[S:SCHEDULED_START_AT:23 giờ]] tới [[S:SCHEDULED_END_AT:6 giờ sáng mai]] .",
 )
 
 # 9. DELAY + END_AT

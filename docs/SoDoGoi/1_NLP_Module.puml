@@ -1,0 +1,98 @@
+@startuml
+
+top to bottom direction
+
+skinparam backgroundColor white
+skinparam shadowing false
+skinparam packageStyle rectangle
+skinparam linetype polyline
+
+skinparam defaultFontName Arial
+skinparam defaultFontSize 14
+skinparam nodesep 45
+skinparam ranksep 65
+skinparam Padding 12
+
+skinparam ArrowColor #475569
+skinparam ArrowThickness 1.2
+
+skinparam package {
+    BorderColor #475569
+    FontColor #1E293B
+    FontStyle bold
+    BackgroundColor #F8FAFC
+}
+
+' =====================================
+' 1. API LAYER
+' =====================================
+
+package "API Layer" as API #DBEAFE {
+
+    package "Controllers" as Controllers
+
+    package "DTOs" as DTOs
+
+    package "JWT / Phân quyền" as Security
+
+    Controllers -[hidden]right-> DTOs
+    DTOs -[hidden]right-> Security
+}
+
+' =====================================
+' 2. BUSINESS LAYER
+' =====================================
+
+package "Business Layer" as BUSINESS #E0F2FE {
+
+    package "User / Auth Service" as UserService
+
+    package "Device / MCU Service" as DeviceService
+
+    package "Tag / Schedule / Internal API" as OtherService
+
+    UserService -[hidden]right-> DeviceService
+    DeviceService -[hidden]right-> OtherService
+}
+
+' =====================================
+' 3. DATA ACCESS LAYER
+' =====================================
+
+package "Data Access Layer" as DATA #EDE9FE {
+
+    package "Entity Framework Core" as EFCore
+
+    package "AppDbContext" as DbContext
+
+    package "Repository / Truy cập dữ liệu" as Repository
+
+    EFCore -[hidden]right-> DbContext
+    DbContext -[hidden]right-> Repository
+}
+
+' =====================================
+' 4. DOMAIN LAYER
+' =====================================
+
+package "Domain Layer" as DOMAIN #DCFCE7 {
+
+    package "User / Role" as UserDomain
+
+    package "Microcontroller / Device /\nDeviceType / DescriptionTag" as DeviceDomain
+
+    package "Schedule" as ScheduleDomain
+
+    UserDomain -[hidden]right-> DeviceDomain
+    DeviceDomain -[hidden]right-> ScheduleDomain
+}
+
+' =====================================
+' PHU THUOC GIUA CAC GOI
+' =====================================
+
+API ..> BUSINESS
+BUSINESS ..> DATA
+DATA ..> DOMAIN
+
+@enduml

@@ -3,6 +3,8 @@ using DeviceRegistry.Api.DTOs;
 using DeviceRegistry.Api.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
+using System.Security.Claims;
+
 
 
 namespace DeviceRegistry.Api.Controllers;
@@ -17,6 +19,14 @@ public class UserController : ControllerBase
     public UserController(UsersService service)
     {
         _userService = service;
+    }
+
+    // helper lấy user_id từ JWT đã xác thực
+    private int? GetCurrentUserId()
+    {
+        string? userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if(int.TryParse(userId, out int id)) return id;
+        return null;
     }
 
     // 1. Tạo User
@@ -36,21 +46,21 @@ public class UserController : ControllerBase
     }
 
     // 2. Cập nhật toàn bộ thông tin được phép sửa
-    // PUT: /api/user/{id}
-    [HttpPut("{id:int}")]
-    public async Task<IActionResult> Update(int id, [FromBody] UpdateUserRequestDto request)
+    // PUT: /api/user/me
+    [HttpPut("me")]
+    public async Task<IActionResult> UpdateMyProfile([FromBody] UpdateUserRequestDto request)
     {
+        int? userId = GetCurrentUserId();
+        if(userId == null) return Unauthorized();
         try
         {
-            var result = await _userService.UpdateUserAsync(id, request);
-
-            if (result == null) return NotFound(new { message = "Không tìm thấy User." });
-
+            var result = await _userService.UpdateUserAsync(userId.Value, request);
+            if(result == null) return NotFound(new {message = "Không tìm thấy toàn khoản"});
             return Ok(result);
         }
         catch (ArgumentException ex)
         {
-            return BadRequest(new { message = ex.Message });
+            return BadRequest(new {message = ex.Message});
         }
     }
     
@@ -67,8 +77,23 @@ public class UserController : ControllerBase
         return NoContent();
     }
 
+    // 4.0 xem tài khoản hiện tại
+    // GET /api/user/me
+    [HttpGet("me")]
+    public async Task<IActionResult> GetMyProfile()
+    {
+        int? userId = GetCurrentUserId();
+        if(userId == null) return Unauthorized();
+
+        var result = await _userService.GetUserByIdAsync(userId.Value);
+
+        if(result == null) return NotFound(new {message = "Không tìm thấy tài khoản."});
+        return Ok(result);
+
+    }
+
     // 4.1. Lấy thông tin một User
-    // GET: /api/user/{id}
+    // GET: /api/user/me
     [HttpGet("{id:int}")]
     public async Task<IActionResult> GetById(int id)
     {
@@ -79,18 +104,18 @@ public class UserController : ControllerBase
         return Ok(result);
     }
 
-    // 4.2. Lấy thông tin User theo Username
-    // GET: /api/user/username/{username}
-    [HttpGet("username/{username}")]
-    public async Task<IActionResult> GetByUsername(string username)
-    {
-        var result = await _userService.GetUserByUsernameAsync(username);
+    // // 4.2. Lấy thông tin User theo Username
+    // // GET: /api/user/username/{username}
+    // [HttpGet("username/{username}")]
+    // public async Task<IActionResult> GetByUsername(string username)
+    // {
+    //     var result = await _userService.GetUserByUsernameAsync(username);
 
-        if (result == null)
-            return NotFound(new { message = "Không tìm thấy User." });
+    //     if (result == null)
+    //         return NotFound(new { message = "Không tìm thấy User." });
 
-        return Ok(result);
-    }
+    //     return Ok(result);
+    // }
 
     // 4.3. lấy danh sách User
     // GET: /api/user
@@ -102,23 +127,29 @@ public class UserController : ControllerBase
     }
 
     // 5. Đổi mật khẩu
-    [HttpPut("{id:int}/password")]
-    public async Task<IActionResult> ChangePassword(int id, [FromBody] ChangePasswordRequestDto request)
+    // PUT /api/user/me/password
+    [HttpPut("me/password")]
+    public async Task<IActionResult> ChangeMyPassword([FromBody] ChangePasswordRequestDto request)
     {
+        int? userId = GetCurrentUserId();
+        if(userId == null) return Unauthorized();
+
         try
         {
-            var changed = await _userService.ChangePasswordAsync(id, request);
-            if (!changed) return NotFound(new { message = "Không tìm thấy User." });
+            bool result = await _userService.ChangePasswordAsync(userId.Value, request);
 
+            if(!result) return NotFound(new {message = "Không tìm thấy tài khoản."});
             return NoContent();
         }
+
         catch (UnauthorizedAccessException ex)
         {
-            return Unauthorized(new { message = ex.Message });
+            return Unauthorized(new {message = ex.Message});
         }
         catch (ArgumentException ex)
         {
-            return BadRequest(new { message = ex.Message });
+            return BadRequest(new{message = ex.Message});
         }
+
     }
 }

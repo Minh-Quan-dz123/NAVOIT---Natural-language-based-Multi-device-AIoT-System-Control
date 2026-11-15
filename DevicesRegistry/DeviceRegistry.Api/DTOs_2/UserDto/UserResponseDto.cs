@@ -8,5 +8,7 @@ public class UserResponseDto
 
     public string? Phone { get; set; }
 
+    public string Role { get; set; } = "User";
+
     public DateTime CreatedAt { get; set; }
 }

@@ -1,0 +1,88 @@
+
+@startuml
+title Biểu đồ trình tự tạo lịch bằng ngôn ngữ tự nhiên
+
+hide footbox
+autonumber
+
+actor "Người dùng" as User
+participant "Web" as Web
+participant "NLP Server" as NLP
+participant "Device Registry Server" as Registry
+participant "ESP32" as ESP
+
+== Phân tích câu lệnh ==
+
+User -> Web : Nhập câu lệnh lập lịch tiếng Việt
+
+Web -> NLP : Gửi câu lệnh và thông tin xác thực
+
+activate NLP
+
+NLP -> NLP : Tiền xử lý văn bản
+NLP -> NLP : PhoBERT - Dự đoán Intent,\nDevice Tags và Schedule Tags
+
+NLP -> Registry : GET /api/device/catalog
+Registry --> NLP : Danh mục thiết bị và thẻ mô tả
+
+NLP -> NLP : Xác định Device đích
+NLP -> NLP : Chuẩn hóa thời gian và hành động
+
+alt Xác định được thiết bị và lịch hợp lệ
+
+    == Thiết lập lịch trên ESP32 ==
+
+    NLP -> NLP : Tạo command_id và cấu trúc lịch
+
+    NLP -> ESP : DEVICE_CONTROL_REQUEST\n(action, schedule - qua MQTT)
+
+    activate ESP
+
+    ESP -> ESP : Tiếp nhận và kiểm tra lệnh
+    ESP -> ESP : Tính toán Tstart, Tend\nvà thiết lập Schedule
+
+    ESP --> NLP : DEVICE_CONTROL_RESPONSE
+
+    deactivate ESP
+
+    NLP -> NLP : Xác minh command_id\nvà kết quả thiết lập lịch
+
+    alt ESP32 thiết lập lịch thành công
+
+        == Lưu lịch vào Device Registry ==
+
+        NLP -> Registry : PUT /api/device/{id}/schedule
+
+        activate Registry
+
+        Registry -> Registry : Kiểm tra và lưu Schedule
+
+        Registry --> NLP : Kết quả lưu lịch
+
+        deactivate Registry
+
+        alt Registry lưu thành công
+            NLP --> Web : Tạo lịch thành công
+        else Registry lưu thất bại
+            NLP -> NLP : Xử lý khôi phục / đối soát
+            NLP --> Web : Chưa hoàn tất đồng bộ lịch
+        end
+
+    else ESP32 thất bại hoặc không xác nhận
+
+        NLP -> NLP : Không lưu thay đổi Schedule
+        NLP --> Web : Tạo lịch thất bại hoặc chưa xác định
+
+    end
+
+else Không xác định được thiết bị hoặc thời gian
+
+    NLP --> Web : Yêu cầu làm rõ / thông báo lỗi
+
+end
+
+deactivate NLP
+
+Web --> User : Hiển thị kết quả
+
+@enduml

@@ -1,0 +1,83 @@
+
+@startuml
+title Biểu đồ trình tự liên kết thiết bị với vi điều khiển
+
+hide footbox
+autonumber
+
+actor "Người dùng" as User
+participant "Web" as Web
+participant "NLP Server" as NLP
+participant "Device Registry Server" as Registry
+participant "ESP32" as ESP
+
+== Tiếp nhận và kiểm tra yêu cầu ==
+
+User -> Web : Chọn Device, ESP32 và GPIO
+Web -> NLP : Gửi yêu cầu liên kết
+
+activate NLP
+
+NLP -> Registry : Lấy thông tin Device và MCU
+Registry --> NLP : Thông tin thiết bị và liên kết hiện tại
+
+NLP -> NLP : Kiểm tra tính hợp lệ\ncủa yêu cầu liên kết
+
+alt Yêu cầu hợp lệ
+
+    == Tạo thiết bị trên ESP32 ==
+
+    NLP -> NLP : Tạo command_id và nội dung lệnh
+    NLP -> ESP : CREATE_DEVICE_REQUEST\n(qua MQTT)
+
+    activate ESP
+
+    ESP -> ESP : Kiểm tra GPIO và giới hạn thiết bị
+    ESP -> ESP : Tạo thiết bị và khởi tạo GPIO
+
+    ESP --> NLP : CREATE_DEVICE_RESPONSE
+
+    deactivate ESP
+
+    NLP -> NLP : Xác minh command_id\nvà kết quả xử lý
+
+    alt ESP32 xác nhận thành công
+
+        == Cập nhật Device Registry ==
+
+        NLP -> Registry : PATCH /api/internal/devices/{id}/binding
+
+        activate Registry
+
+        Registry -> Registry : Kiểm tra ràng buộc liên kết
+        Registry -> Registry : Lưu MCU, GPIO và SyncStatus
+
+        Registry --> NLP : Kết quả cập nhật
+
+        deactivate Registry
+
+        alt Registry cập nhật thành công
+            NLP --> Web : Liên kết thành công
+        else Registry cập nhật thất bại
+            NLP -> NLP : Xử lý khôi phục / đối soát
+            NLP --> Web : Chưa hoàn tất đồng bộ
+        end
+
+    else ESP32 thất bại hoặc không xác nhận
+
+        NLP -> NLP : Không cập nhật liên kết
+        NLP --> Web : Liên kết thất bại hoặc chưa xác định
+
+    end
+
+else Yêu cầu không hợp lệ
+
+    NLP --> Web : Thông báo lỗi
+
+end
+
+deactivate NLP
+
+Web --> User : Hiển thị kết quả liên kết
+
+@enduml

@@ -1,0 +1,54 @@
+
+@startuml
+title Quy trình điều khiển bằng ngôn ngữ tự nhiên
+
+skinparam shadowing false
+
+|Người dùng|
+start
+:Nhập yêu cầu điều khiển
+bằng ngôn ngữ tự nhiên;
+
+|Server|
+:Phân tích ý định, thẻ
+và thông tin thời gian;
+:Tìm thiết bị phù hợp
+dựa trên các thẻ;
+
+if (Tìm thấy thiết bị?) then (Có)
+
+    if (Có thông tin lập lịch?) then (Có)
+        :Tạo thông tin lịch điều khiển;
+        :Gửi yêu cầu tạo lịch qua MQTT;
+
+        |Vi điều khiển|
+        :Tiếp nhận và lưu lịch
+        vào RAM;
+        :Tự thực hiện khi đến thời điểm;
+
+    else (Không)
+        |Server|
+        :Gửi lệnh bật/tắt qua MQTT;
+
+        |Vi điều khiển|
+        :Tiếp nhận và thực hiện
+        lệnh điều khiển;
+    endif
+
+    :Gửi phản hồi kết quả về Server;
+
+    |Server|
+    :Cập nhật thông tin trạng thái
+    và lịch điều khiển;
+
+    |Người dùng|
+    :Xem kết quả điều khiển;
+    :Xem hoặc hủy lịch khi cần;
+
+else (Không)
+    :Thông báo không tìm thấy
+    thiết bị phù hợp;
+endif
+
+stop
+@enduml

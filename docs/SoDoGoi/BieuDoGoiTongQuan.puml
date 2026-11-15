@@ -1,0 +1,59 @@
+
+@startuml
+
+top to bottom direction
+
+skinparam backgroundColor white
+skinparam shadowing false
+skinparam packageStyle rectangle
+skinparam linetype polyline
+skinparam defaultFontName Arial
+skinparam defaultFontSize 13
+skinparam nodesep 60
+skinparam ranksep 75
+skinparam Padding 12
+skinparam ArrowColor #475569
+
+skinparam package {
+    BackgroundColor #F1F5F9
+    BorderColor #475569
+    FontColor #1E293B
+}
+
+skinparam database {
+    BackgroundColor #DCFCE7
+    BorderColor #475569
+}
+
+package "Web UI" as WEB #DBEAFE
+
+package "NLP Server" as NLP #E0F2FE
+
+package "Device Registry\nServer" as REG #E0F2FE
+
+database "PostgreSQL\n(Supabase)" as DB
+
+package "MQTT Broker" as MQTT #D1FAE5
+
+package "ESP32" as ESP #D1FAE5
+
+' Quan hệ giữa các gói
+WEB -down-> NLP
+WEB -down-> REG
+
+NLP -right-> REG
+
+REG -down-> DB
+REG -down-> MQTT
+
+MQTT -down-> ESP
+
+' Chú thích riêng, không đặt trên mũi tên
+legend bottom
+  Web UI -> NLP / Registry: HTTP REST
+  NLP -> Registry: REST API
+  Registry -> PostgreSQL: EF Core
+  Registry -> MQTT Broker -> ESP32: MQTT
+endlegend
+
+@enduml

@@ -13,11 +13,11 @@ import json
 from pathlib import Path
 
 # 1. Xác định thư mục gốc của Backend.
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 
 # 2. Đường dẫn file đầu vào và đầu ra.
-source = ROOT / "config" / "labels.json"
-target = ROOT / "config" / "label_maps.json"
+source = ROOT / "dataset" / "config" / "labels.json"
+target = ROOT / "dataset" / "config" / "label_maps.json"
 
 # 3. Đọc dữ liệu JSON thành Python dictionary.
 config = json.loads(source.read_text(encoding="utf-8"))

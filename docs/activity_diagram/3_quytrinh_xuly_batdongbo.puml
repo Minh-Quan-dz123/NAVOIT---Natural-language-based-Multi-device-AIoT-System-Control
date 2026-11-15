@@ -1,0 +1,69 @@
+
+@startuml
+title Quy trình đồng bộ dữ liệu với vi điều khiển
+
+skinparam shadowing false
+
+|Server|
+start
+:Tiếp nhận yêu cầu đồng bộ;
+
+note right
+  Có 3 nguồn kích hoạt:
+  - Người dùng yêu cầu
+  - Server định kỳ
+  - Vi điều khiển yêu cầu
+end note
+
+if (Vi điều khiển vừa khởi động lại?) then (Có)
+    :Gửi thông tin thời gian hiện tại;
+
+    |Vi điều khiển|
+    :Khôi phục thông tin thời gian;
+else (Không)
+endif
+
+|Server|
+:Gửi yêu cầu lấy cấu hình hiện tại;
+
+|Vi điều khiển|
+:Gửi thông tin liên kết
+thiết bị - GPIO trong RAM;
+
+|Server|
+:So sánh với dữ liệu
+cấu hình trên Server;
+
+if (Có sai lệch cấu hình?) then (Có)
+    :Gửi lệnh điều chỉnh
+    các liên kết thiết bị - GPIO;
+
+    |Vi điều khiển|
+    :Xóa, thêm hoặc cập nhật
+    liên kết theo yêu cầu;
+    :Phản hồi kết quả xử lý;
+
+    |Server|
+    if (Đồng bộ liên kết thành công?) then (Có)
+    else (Không)
+        :Ghi nhận lỗi đồng bộ;
+        stop
+    endif
+else (Không)
+endif
+
+|Server|
+:Kiểm tra lịch điều khiển
+theo dữ liệu trên Server;
+:Gửi yêu cầu đồng bộ lịch;
+
+|Vi điều khiển|
+:Xóa lịch cũ;
+:Lưu lại các lịch còn hiệu lực;
+:Gửi phản hồi kết quả;
+
+|Server|
+:Ghi nhận kết quả đồng bộ;
+
+stop
+@enduml

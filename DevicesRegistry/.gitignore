@@ -44,9 +44,12 @@ packages/
 .env.*
 !.env.example
 
+keys/
+
 appsettings.Development.json
 appsettings.Local.json
 appsettings.*.local.json
+appsettings.json
 
 # ==========================
 # 6. Database

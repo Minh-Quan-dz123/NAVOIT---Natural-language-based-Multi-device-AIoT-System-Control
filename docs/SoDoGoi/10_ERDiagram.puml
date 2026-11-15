@@ -1,0 +1,130 @@
+
+@startuml
+title Biểu đồ thực thể liên kết của hệ thống
+
+left to right direction
+
+skinparam linetype ortho
+skinparam shadowing false
+skinparam classAttributeIconSize 0
+skinparam defaultFontSize 13
+hide circle
+
+' ==============================
+' CÁC THỰC THỂ
+' ==============================
+
+entity "User" as U {
+    * Id : int <<PK>>
+    --
+    Username : string
+    Password : string
+    Phone : string?
+    CreatedAt : DateTime
+}
+
+entity "Microcontroller" as M {
+    * Id : int <<PK>>
+    --
+    UserId : int <<FK>>
+    Type : string
+    MacAddress : string <<UNIQUE>>
+    ConnectionStatus : string
+    LastSeenAt : DateTime?
+    CreatedAt : DateTime
+}
+
+entity "DeviceType" as DT {
+    * Id : int <<PK>>
+    --
+    TypeName : string
+    AllowedStatuses : string
+}
+
+entity "Device" as D {
+    * Id : int <<PK>>
+    --
+    UserId : int <<FK>>
+    MicrocontrollerId : int? <<FK>>
+    DeviceTypeId : int <<FK>>
+    DeviceName : string?
+    Description : string?
+    Gpio : int?
+    CurrentStatus : string
+    StatusUpdatedAt : DateTime?
+    CreatedAt : DateTime
+}
+
+entity "Schedule" as S {
+    * Id : int <<PK>>
+    --
+    DeviceId : int <<FK, UNIQUE>>
+    Action : string
+    Delay : int?
+    Duration : int?
+    ScheduledStartAt : long?
+    ScheduledEndAt : long?
+    ExpiresAt : long
+    CreatedAt : DateTime
+    UpdatedAt : DateTime
+}
+
+entity "TagGroup" as TG {
+    * Id : int <<PK>>
+    --
+    UserId : int
+    CreatedAt : DateTime
+}
+
+entity "Tag" as T {
+    * Id : int <<PK>>
+    --
+    TagGroupId : int <<FK>>
+    Value : string
+    CreatedAt : DateTime
+}
+
+entity "DeviceTagGroup" as DG {
+    * Id : int <<PK>>
+    --
+    DeviceId : int <<FK>>
+    TagGroupId : int <<FK>>
+    CreatedAt : DateTime
+}
+
+' ==============================
+' CÁC MỐI QUAN HỆ
+' ==============================
+
+' Quan hệ sở hữu
+U "1" -- "0..*" M : sở hữu
+U "1" -- "0..*" D : sở hữu
+U "1" .. "0..*" TG : quản lý
+
+' Quan hệ thiết bị
+M "0..1" -- "0..*" D : quản lý
+DT "1" -- "0..*" D 
+
+' Quan hệ lịch điều khiển
+D "1" -- "0..1" S 
+
+' Quan hệ thẻ mô tả
+D "1" -- "0..*" DG 
+TG "1" -- "0..*" DG 
+TG "1" -- "0..*" T : chứa
+
+' ==============================
+' GHI CHÚ
+' ==============================
+
+note bottom of S
+    ExpiresAt: Unix timestamp (giây)
+
+    IsExpired =
+    CurrentTime >= ExpiresAt
+
+    IsExpired không lưu trong DB.
+end note
+
+
+@enduml

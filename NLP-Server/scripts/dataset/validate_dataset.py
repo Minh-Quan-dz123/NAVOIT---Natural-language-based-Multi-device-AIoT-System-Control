@@ -31,11 +31,24 @@ from string import Formatter
 # 1. CẤU HÌNH
 # ============================================================
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2] / "dataset"
 
+# Thư mục gốc toàn bộ dự án.
+PROJECT_ROOT = ROOT.parent
+
+# Dataset nguồn.
 DATA_FILE = ROOT / "data" / "raw" / "smarthome_seed.jsonl"
+
+# Cấu hình các nhãn.
 LABEL_FILE = ROOT / "config" / "labels.json"
-SEED_FILE = ROOT / "scripts" / "seed_config.py"
+
+# File seed_config.py thực tế nằm trong scripts/dataset.
+SEED_FILE = (
+    PROJECT_ROOT
+    / "scripts"
+    / "dataset"
+    / "seed_config.py"
+)
 
 SCHEDULE_MARKER = re.compile(
     r"\[\[S:([A-Z_]+):[^\[\]]+\]\]"

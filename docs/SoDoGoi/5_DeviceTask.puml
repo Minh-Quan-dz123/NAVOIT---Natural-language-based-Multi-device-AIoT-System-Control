@@ -1,0 +1,66 @@
+
+@startuml
+title Biểu đồ lớp DeviceTask
+
+skinparam classAttributeIconSize 0
+
+class DeviceTask {
+  -_gpio: uint8_t
+  -_deviceType: char[64]
+  -_deviceName: char[128]
+  -_status: DeviceStatus
+  -_taskHandle: TaskHandle_t
+  -_commandQueue: QueueHandle_t
+  -_running: bool
+  -_Tnow: time_t
+  -_Tstart: time_t
+  -_Tend: time_t
+  -_statusScheduled: DeviceStatus[3]
+  -ss: uint8_t
+  --
+  +DeviceTask(gpio, deviceType, deviceName)
+  +start(): bool
+  +stop(): bool
+  +sendCommand(command: DeviceCommand): bool
+  +getGpio(): uint8_t
+  +getDeviceType(): const char*
+  +getDeviceName(): const char*
+  +getStatus(): DeviceStatus
+  +hasSchedule(): bool
+  -taskLoop(): void
+  -processCommand(command: DeviceCommand): void
+  -turnOn(): void
+  -turnOff(): void
+  -createSchedule(...): void
+  -cancelSchedule(): void
+  -checkSchedule(): void
+}
+
+class DeviceCommand <<struct>> {
+  +action: DeviceAction
+  +duration: uint32_t
+  +scheduled_delay: uint32_t
+  +scheduled_start_at: time_t
+  +scheduled_end_at: time_t
+}
+
+enum DeviceAction {
+  ON
+  OFF
+  CANCEL_SCHEDULE
+}
+
+enum DeviceStatus {
+  ON
+  OFF
+}
+
+DeviceTask ..> DeviceCommand : receives
+DeviceCommand --> DeviceAction
+DeviceTask --> DeviceStatus
+
+note right of DeviceTask
+  Một DeviceTask quản lý một GPIO.
+  Sử dụng FreeRTOS Task và Queue.
+end note
+@enduml

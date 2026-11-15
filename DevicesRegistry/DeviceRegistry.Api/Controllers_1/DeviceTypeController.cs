@@ -1,4 +1,3 @@
-
 using DeviceRegistry.Api.DTOs;
 using DeviceRegistry.Api.Services;
 
@@ -14,15 +13,13 @@ public class DeviceTypeController : ControllerBase
 {
     private readonly DeviceTypeService _service;
 
-    // 1. CONSTRUCTOR
-
     public DeviceTypeController(DeviceTypeService service)
     {
         _service = service;
     }
-
-    // 2. GET ALL DEVICE TYPES
+    // 1. GET ALL
     // GET /api/devicetype
+    // User và Admin
     [HttpGet]
     public async Task<IActionResult> GetAll()
     {
@@ -30,31 +27,37 @@ public class DeviceTypeController : ControllerBase
         return Ok(result);
     }
 
-    // 3. GET DEVICE TYPE BY ID
+    // 2. GET BY ID
     // GET /api/devicetype/{id}
-
+    // User và Admin
     [HttpGet("{id:int}")]
     public async Task<IActionResult> GetById(int id)
     {
         var result = await _service.GetByIdAsync(id);
-
-        if (result == null)return NotFound(new { message = "Không tìm thấy DeviceType."});
+        if (result == null)
+        {
+            return NotFound(new { message = "Không tìm thấy loại thiết bị."});     
+        }
 
         return Ok(result);
     }
 
-    // 4. CREATE DEVICE TYPE
+    // 3. CREATE
     // POST /api/devicetype
+    // Admin
     [HttpPost]
+    [Authorize(Roles = "Admin")]
     public async Task<IActionResult> Create([FromBody] CreateDeviceTypeRequestDto request)
     {
         try
         {
             var result = await _service.CreateAsync(request);
 
-            // HTTP 201 Created.
-            // Trả về Location của DeviceType mới.
-            return CreatedAtAction(nameof(GetById), new { id = result.Id }, result);
+            return CreatedAtAction(
+                nameof(GetById),
+                new { id = result.Id },
+                result
+            );
         }
         catch (ArgumentException ex)
         {
@@ -66,17 +69,20 @@ public class DeviceTypeController : ControllerBase
         }
     }
 
-    // 5. UPDATE DEVICE TYPE
+    // 4. UPDATE
     // PATCH /api/devicetype/{id}
-
+    // Admin
     [HttpPatch("{id:int}")]
-    public async Task<IActionResult> Update(int id,[FromBody] UpdateDeviceTypeRequestDto request)
+    [Authorize(Roles = "Admin")]
+    public async Task<IActionResult> Update(int id, [FromBody] UpdateDeviceTypeRequestDto request)
     {
         try
         {
             var result = await _service.UpdateAsync(id, request);
-
-            if (result == null)return NotFound(new{ message = "Không tìm thấy DeviceType."});
+            if (result == null)
+            {
+                return NotFound(new { message = "Không tìm thấy loại thiết bị."});    
+            }
 
             return Ok(result);
         }
@@ -90,19 +96,21 @@ public class DeviceTypeController : ControllerBase
         }
     }
 
-    // 6. DELETE DEVICE TYPE
+    // 5. DELETE
     // DELETE /api/devicetype/{id}
-
+    // Admin
     [HttpDelete("{id:int}")]
+    [Authorize(Roles = "Admin")]
     public async Task<IActionResult> Delete(int id)
     {
         try
         {
-            var deleted = await _service.DeleteAsync(id);
+            bool deleted = await _service.DeleteAsync(id);
+            if (!deleted)
+            {
+                return NotFound(new { message = "Không tìm thấy loại thiết bị."});    
+            }
 
-            if (!deleted)return NotFound(new {message = "Không tìm thấy DeviceType."});
-
-            // Xóa thành công, không cần response body.
             return NoContent();
         }
         catch (InvalidOperationException ex)

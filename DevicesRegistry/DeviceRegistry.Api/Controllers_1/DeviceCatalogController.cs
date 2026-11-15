@@ -23,11 +23,8 @@ public class DeviceCatalogController : ControllerBase
         _context = context;
     }
 
-    // ==========================================
     // 2. GET DEVICE CATALOG
     // GET /api/device/catalog
-    // ==========================================
-
     [HttpGet]
     public async Task<IActionResult> GetCatalog()
     {

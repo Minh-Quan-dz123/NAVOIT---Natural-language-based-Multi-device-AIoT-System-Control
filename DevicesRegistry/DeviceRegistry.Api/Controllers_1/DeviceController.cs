@@ -175,36 +175,5 @@ public class DeviceController : ControllerBase
         }
     }
 
-    // 9. DEVICE RESOLUTION
-    // POST /api/device/resolve
-
-    [HttpPost("resolve")]
-    public IActionResult Resolve(
-        [FromBody] DeviceResolutionRequestDto request
-    )
-    {
-        // TODO: Hoàn thiện khi code Tag và TagGroup.
-        //
-        // Chức năng sẽ:
-        // 1. Lấy UserId từ JWT hoặc danh tính service tin cậy.
-        // 2. Chuẩn hóa danh sách tags.
-        // 3. Tìm các TagGroup tương ứng.
-        // 4. Tìm Device liên kết với các TagGroup.
-        // 5. Trả danh sách Device và điểm khớp.
-        //
-        // Không sử dụng request.UserId một cách trực tiếp
-        // vì client có thể giả mạo ID người dùng.
-        //
-        // Chưa triển khai nên không trả 200 OK giả.
-
-        // có thể triển khai bên server NLP
-
-        return StatusCode(
-            StatusCodes.Status501NotImplemented,
-            new
-            {
-                message = "Device Resolution chưa được triển khai."
-            }
-        );
-    }
+    
 }

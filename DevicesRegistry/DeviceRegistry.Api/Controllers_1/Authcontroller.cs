@@ -1,5 +1,6 @@
 using DeviceRegistry.Api.DTOs;
 using DeviceRegistry.Api.Services;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace DeviceRegistry.Api.Controllers;
@@ -8,35 +9,38 @@ namespace DeviceRegistry.Api.Controllers;
 [Route("api/[controller]")]
 public class AuthController : ControllerBase
 {
-
-    // 1. hàm khởi tạo
     private readonly AuthService _authService;
 
+    // 1. Constructor
     public AuthController(AuthService authService)
     {
         _authService = authService;
     }
 
-    // POST: /api/auth/register
+    // 2. ĐĂNG KÝ
+    // POST /api/auth/register
+    [AllowAnonymous]
     [HttpPost("register")]
-    public async Task<IActionResult> Register(CreateUserRequestDto dto)
+    public async Task<IActionResult> Register([FromBody] CreateUserRequestDto request)
     {
         try
         {
-            var result = await _authService.RegisterAsync(dto);
+            var result = await _authService.RegisterAsync(request);
             return Ok(result);
         }
         catch (ArgumentException ex)
         {
-            return BadRequest(new { message = ex.Message });
+            return BadRequest(new {message = ex.Message});
         }
     }
 
-    // POST: /api/auth/login
+    // 3. ĐĂNG NHẬP
+    // POST /api/auth/login
+    [AllowAnonymous]
     [HttpPost("login")]
-    public async Task<IActionResult> Login(LoginDto dto)
+    public async Task<IActionResult> Login([FromBody] LoginDto request)
     {
-        var result = await _authService.LoginAsync(dto);
+        var result = await _authService.LoginAsync(request);
 
         if (result == null)
         {

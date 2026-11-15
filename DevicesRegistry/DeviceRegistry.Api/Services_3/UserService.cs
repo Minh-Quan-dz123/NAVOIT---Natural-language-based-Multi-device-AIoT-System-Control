@@ -29,9 +29,11 @@ public class UsersService
             Id = user.Id,
             Username = user.Username,
             Phone = user.Phone,
-            CreatedAt = user.CreatedAt
+            CreatedAt = user.CreatedAt,
+            Role = user.Role
         };
     } 
+    
     // 1. thêm user (tạo user)
     public async Task<UserResponseDto> CreateUserAsync(CreateUserRequestDto dto)
     {
@@ -65,13 +67,13 @@ public class UsersService
         return user == null ? null : MapToDto(user);
     }
 
-    // 2.5. lấy thông tin User theo username
-    public async Task<UserResponseDto?> GetUserByUsernameAsync(string username)
-    {
-        var user = await _context.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Username == username);
+    // // 2.5. lấy thông tin User theo username
+    // public async Task<UserResponseDto?> GetUserByUsernameAsync(string username)
+    // {
+    //     var user = await _context.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Username == username);
 
-        return user == null ? null : MapToDto(user);
-    }
+    //     return user == null ? null : MapToDto(user);
+    // }
 
     // 3. Lấy danh sách User
     public async Task<List<UserResponseDto>> GetAllUsersAsync()
@@ -98,29 +100,36 @@ public class UsersService
         var user = await _context.Users.FirstOrDefaultAsync(u => u.Id == id);
         if (user == null) return null;
 
-        // 4.2. kiểm tra  name
+        // 4.2. Cập nhật Username nếu được gửi lên
         if (dto.Username != null)
         {
-            if (string.IsNullOrWhiteSpace(dto.Username)) throw new ArgumentException("Username không được để trống.");
+            string username = dto.Username.Trim();
+            if (string.IsNullOrWhiteSpace(username)) throw new ArgumentException("Username không được để trống.");
 
             // chỉ có 1 username thôi
-            var exists = await _context.Users.AnyAsync(
-                u => u.Id != id && u.Username == dto.Username
+            bool exists = await _context.Users.AnyAsync(
+                u => u.Id != id && u.Username == username
             );
             if (exists) throw new ArgumentException("Username đã tồn tại.");
 
-            user.Username = dto.Username;
+            user.Username = username;
         }
 
         // kiểm tra điện thoại (điện thoại cũng là duy nhất)
         if (dto.Phone != null)
         {
-            var phoneExists = await _context.Users.AnyAsync(
-                u => u.Id != id && u.Phone == dto.Phone
-            );
+            string phone = dto.Phone.Trim();
+            if (!System.Text.RegularExpressions.Regex.IsMatch(
+                phone, @"^[0-9]{10}$"))
+            {
+                throw new ArgumentException("Phone phải gồm đúng 10 chữ số.");
+            }
+
+            bool phoneExists = await _context.Users
+                .AnyAsync(u =>u.Id != id && u.Phone == phone);
 
             if (phoneExists) throw new ArgumentException("Số điện thoại đã được sử dụng.");
-            user.Phone = dto.Phone;
+            user.Phone = phone;
         }
 
         await _context.SaveChangesAsync();
@@ -134,6 +143,17 @@ public class UsersService
         // lấy user ra
         var user = await _context.Users.FirstOrDefaultAsync(u => u.Id == id);
         if (user == null) return false;
+
+        if (string.IsNullOrEmpty(dto.OldPassword))
+        {
+            throw new ArgumentException("Mật khẩu hiện tại không được để trống.");
+        }
+
+        if (string.IsNullOrEmpty(dto.NewPassword) ||
+            dto.NewPassword.Length < 8)
+        {
+            throw new ArgumentException("Mật khẩu mới phải có ít nhất 8 ký tự.");
+        }
 
         // 5.1. kiểm tra mật khẩu cũ có đúng ko
         var result = _passwordHasher.VerifyHashedPassword(

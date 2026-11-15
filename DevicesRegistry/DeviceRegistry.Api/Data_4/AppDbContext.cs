@@ -32,6 +32,7 @@ public class AppDbContext:DbContext // kế thừa
     public DbSet<DeviceTagGroup> DeviceTagGroups { get; set; }
     public DbSet<DeviceType> DeviceTypes { get; set; }
     public DbSet<Microcontroller> Microcontrollers { get; set; }
+    public DbSet<MicrocontrollerType> MicrocontrollerTypes { get; set; }
     public DbSet<Schedule> Schedules { get; set; }
     public DbSet<Tag> Tags { get; set; }
     public DbSet<TagGroup> TagGroups { get; set; }
@@ -137,6 +138,7 @@ public class AppDbContext:DbContext // kế thừa
         // Ví dụ:
         // MCU 1 - GPIO 25: chỉ được một Device.
         // MCU 2 - GPIO 25: vẫn hợp lệ.
+        // 10.
         modelBuilder.Entity<Device>()
         // Tạo một index kết hợp từ hai cột:
         // MicrocontrollerId: ID của vi điều khiển.
@@ -154,22 +156,61 @@ public class AppDbContext:DbContext // kế thừa
         // Định danh MCU không được trùng trong cùng loại.
         // Cần chuẩn hóa Type và MacAddress tại Service
         // trước khi lưu để tránh sai khác chữ hoa/thường.
+        // 11
         modelBuilder.Entity<Microcontroller>()
             .HasIndex(m => new{m.Type, m.MacAddress})
             .IsUnique();
 
-        // CONFIGURATION
+        // 12. CONFIGURATION
         // Giới hạn độ dài trạng thái đồng bộ.
         modelBuilder.Entity<Device>()
             .Property(d => d.SyncStatus)
             .HasMaxLength(32)
             .HasDefaultValue("unassigned");
 
-        // Trạng thái thiết bị.
+        // 13. Trạng thái thiết bị.
         modelBuilder.Entity<Device>()
             .Property(d => d.CurrentStatus)
             .HasMaxLength(32)
             .HasDefaultValue("UNKNOWN");
 
+        // 14. USER CONFIGURATION
+        // Role mặc định
+        modelBuilder.Entity<User>()
+            .Property(u => u.Role)
+            .HasMaxLength(16)
+            .HasDefaultValue("User")
+            .IsRequired();
+
+        // Username duy nhất
+        modelBuilder.Entity<User>()
+            .HasIndex(u => u.Username)
+            .IsUnique();
+
+        // Phone duy nhất nếu có giá trị
+        modelBuilder.Entity<User>()
+            .HasIndex(u => u.Phone)
+            .IsUnique();
+
+
+        // 15. MICROCONTROLLERTYPE 
+        modelBuilder.Entity<MicrocontrollerType>()
+            .ToTable("MicrocontrollerTypes");
+
+        // Tên loại không được để null,
+        // tối đa 50 ký tự.
+        modelBuilder.Entity<MicrocontrollerType>()
+            .Property(mt => mt.TypeName)
+            .HasMaxLength(50)
+            .IsRequired();
+
+        // Không cho tạo hai loại trùng tên.
+        // Service sẽ chuẩn hóa tên về chữ thường.
+        modelBuilder.Entity<MicrocontrollerType>()
+            .HasIndex(mt => mt.TypeName)
+            .IsUnique();
     }
+            
+
+    
 }

@@ -1,0 +1,45 @@
+
+@startuml
+skinparam classAttributeIconSize 0
+
+class "DbContext" as DbContext
+
+class AppDbContext {
+  +Users: DbSet<User>
+  +Microcontrollers: DbSet<Microcontroller>
+  +Devices: DbSet<Device>
+  +DeviceTypes: DbSet<DeviceType>
+  +Schedules: DbSet<Schedule>
+  +Tags: DbSet<Tag>
+  +TagGroups: DbSet<TagGroup>
+  +DeviceTagGroups: DbSet<DeviceTagGroup>
+  --
+  +AppDbContext(options)
+  #OnModelCreating(modelBuilder): void
+}
+
+class User <<Entity>>
+class Microcontroller <<Entity>>
+class Device <<Entity>>
+class DeviceType <<Entity>>
+class Schedule <<Entity>>
+class Tag <<Entity>>
+class TagGroup <<Entity>>
+class DeviceTagGroup <<Entity>>
+
+DbContext <|-- AppDbContext
+
+AppDbContext ..> User
+AppDbContext ..> Microcontroller
+AppDbContext ..> Device
+AppDbContext ..> DeviceType
+AppDbContext ..> Schedule
+AppDbContext ..> Tag
+AppDbContext ..> TagGroup
+AppDbContext ..> DeviceTagGroup
+
+note bottom of AppDbContext
+  Cấu hình khóa ngoại, quan hệ,
+  unique index và delete behavior.
+end note
+@enduml

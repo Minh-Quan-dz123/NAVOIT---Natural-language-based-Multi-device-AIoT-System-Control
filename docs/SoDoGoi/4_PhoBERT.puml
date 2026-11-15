@@ -1,0 +1,41 @@
+
+@startuml
+title Biểu đồ lớp SmartHomePhoBERT
+
+skinparam classAttributeIconSize 0
+
+class "nn.Module" as Module {
+  +train(mode: bool)
+  +forward(...)
+}
+
+class SmartHomePhoBERT {
+  -encoder: AutoModel
+  -dropout: nn.Dropout
+  -intent_head: nn.Linear
+  -tag_head: nn.Linear
+  -time_head: nn.Linear
+  -freeze_encoder: bool
+  --
+  +__init__(num_intents, num_tag_labels,\n num_time_labels, model_name, freeze_encoder)
+  +train(mode: bool = True)
+  +forward(input_ids, attention_mask): dict
+}
+
+class "PhoBERT-base-v2" as Encoder
+class "Intent Head" as IH
+class "Device Tag Head" as TH
+class "Schedule Head" as SH
+
+Module <|-- SmartHomePhoBERT
+SmartHomePhoBERT *-- Encoder
+SmartHomePhoBERT *-- IH
+SmartHomePhoBERT *-- TH
+SmartHomePhoBERT *-- SH
+
+note bottom of SmartHomePhoBERT
+  Intent: [B, I]
+  Device tags: [B, L, T]
+  Schedule: [B, L, S]
+end note
+@enduml

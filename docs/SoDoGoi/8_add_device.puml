@@ -1,0 +1,49 @@
+
+@startuml
+title Biểu đồ trình tự tạo thiết bị
+
+hide footbox
+autonumber
+
+actor "Người dùng" as User
+participant "Web" as Web
+participant "Device Registry Server" as Registry
+
+== Tiếp nhận yêu cầu ==
+
+User -> Web : Nhập tên, loại và mô tả thiết bị
+Web -> Web : Kiểm tra dữ liệu đầu vào
+
+Web -> Registry : POST /api/device\n(CreateDeviceRequestDto)
+
+activate Registry
+
+Registry -> Registry : Xác thực người dùng
+Registry -> Registry : Kiểm tra DeviceType\nvà thông tin thiết bị
+
+alt Dữ liệu hợp lệ
+
+    Registry -> Registry : Tạo Device logic
+    note right
+        MicrocontrollerId = NULL
+        Gpio = NULL
+        SyncStatus = unassigned
+    end note
+
+    Registry -> Registry : Lưu thiết bị vào cơ sở dữ liệu
+
+    Registry --> Web : 201 Created\nThông tin Device mới
+
+    Web -> Web : Cập nhật danh sách thiết bị
+    Web --> User : Thông báo tạo thành công
+
+else Dữ liệu không hợp lệ
+
+    Registry --> Web : 400 / 409\nThông tin lỗi
+    Web --> User : Hiển thị nguyên nhân thất bại
+
+end
+
+deactivate Registry
+
+@enduml
