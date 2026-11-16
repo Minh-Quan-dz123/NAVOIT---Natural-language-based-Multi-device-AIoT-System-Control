@@ -8,6 +8,15 @@ using Microsoft.IdentityModel.Tokens;
 using DeviceRegistry.Api.Data;
 using DeviceRegistry.Api.Services;
 
+using System.Text;
+using Microsoft.AspNetCore.Authentication;
+using DeviceRegistry.Api.Authentication;
+
+// đọc .env để lấy internal key chung với nlp server
+if (File.Exists(".env"))
+{
+    DotNetEnv.Env.Load();
+}
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -122,8 +131,31 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme) // Ad
         };
     });
 
-// đăng ký hệ thống phân quyền, cho phép sử dụng [Authorize] tại Controller hoặc Action.
-builder.Services.AddAuthorization();
+
+// 6. XÁC THỰC NLP SERVER BẰNG INTERNAL KEY
+// 6.1. Đọc key từ cấu hình
+string internalKey = builder.Configuration["InternalApi:Key"] ?? throw new InvalidOperationException("Thiếu Internal API Key.");
+
+// 6.2. Kiểm tra key
+if (Encoding.UTF8.GetByteCount(internalKey) < 32)
+{
+    throw new InvalidOperationException("Internal API Key phải dài ít nhất 32 byte.");
+}
+
+// 6.3. Đăng ký cơ chế xác thực Internal Key
+// Không thay thế JWT Bearer đang có.
+builder.Services.AddAuthentication().AddScheme<AuthenticationSchemeOptions, InternalKeyAuthenticationHandler>("InternalKey", options => { });
+
+// 6.4. Đăng ký policy cho NLP Server
+builder.Services.AddAuthorization(options =>
+{
+    options.AddPolicy("NlpServerOnly", policy =>
+    {
+        policy.AddAuthenticationSchemes("InternalKey");
+        policy.RequireAuthenticatedUser();
+    });
+});
+
 
 // 5. BULDE APPLICATION
 var app = builder.Build();

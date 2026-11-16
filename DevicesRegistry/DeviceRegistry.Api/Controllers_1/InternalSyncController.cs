@@ -26,9 +26,7 @@ public class InternalSyncController : ControllerBase
     // PATCH /api/internal/devices/{deviceId}/binding
 
     [HttpPatch("devices/{deviceId:int}/binding")]
-    public async Task<IActionResult> UpdateBinding(
-        int deviceId,
-        [FromBody] UpdateDeviceBindingRequestDto request)
+    public async Task<IActionResult> UpdateBinding(int deviceId, [FromBody] UpdateDeviceBindingRequestDto request)
     {
         // MCU và GPIO phải cùng null hoặc cùng có giá trị.
         if (request.MicrocontrollerId.HasValue != request.Gpio.HasValue)
@@ -41,10 +39,7 @@ public class InternalSyncController : ControllerBase
 
         if (request.Gpio.HasValue && request.Gpio.Value < 0)
         {
-            return BadRequest(new
-            {
-                message = "GPIO không hợp lệ."
-            });
+            return BadRequest(new {message = "GPIO không hợp lệ." }); 
         }
 
         // 1.1. Tìm Device thuộc User
@@ -53,13 +48,7 @@ public class InternalSyncController : ControllerBase
                 d.Id == deviceId &&
                 d.UserId == request.UserId);
 
-        if (device == null)
-        {
-            return NotFound(new
-            {
-                message = "Không tìm thấy Device."
-            });
-        }
+        if (device == null) return NotFound(new {message = "Không tìm thấy Device."});
 
         // 1.2. Lưu liên kết cũ
         int? oldMicrocontrollerId = device.MicrocontrollerId;
@@ -99,10 +88,7 @@ public class InternalSyncController : ControllerBase
             }
 
             // Giới hạn ESP32 tối đa 6 Device
-            if (string.Equals(
-                mcu.Type,
-                "esp32",
-                StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(mcu.Type, "esp32", StringComparison.OrdinalIgnoreCase))
             {
                 int count = await _context.Devices
                     .CountAsync(d =>

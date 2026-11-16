@@ -19,6 +19,21 @@ from src.server.inference.predictor import Predictor
 from src.server.inference.mock_predictor import MockPredictor
 from src.server.inference.phobert_predictor import PhoBERTPredictor
 
+import asyncio
+import sys
+
+from fastapi.middleware.cors import CORSMiddleware
+from src.server.device_binding import router as binding_router
+from src.server.device_control import router as control_router
+from src.server.natural_control import router as natural_router
+from src.server.device_schedule import router as schedule_router
+
+
+# Aiomqtt 2.x cần SelectorEventLoop trên Windows.
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(
+        asyncio.WindowsSelectorEventLoopPolicy()
+    )
 
 # 1. KHỞI TẠO SERVER
 @asynccontextmanager
@@ -58,6 +73,21 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    ],
+    allow_methods=["GET", "POST", "DELETE"],
+    allow_headers=["Authorization", "Content-Type"],
+)
+
+# Đăng ký API binding.
+app.include_router(binding_router)
+app.include_router(control_router)
+app.include_router(natural_router)
+app.include_router(schedule_router)
 
 # 3. HEALTH CHECK
 @app.get("/health")

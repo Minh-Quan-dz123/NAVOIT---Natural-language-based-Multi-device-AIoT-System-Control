@@ -37,11 +37,22 @@ VNCORENLP_DIR = os.getenv(
 # 4. KẾT NỐI DEVICE REGISTRY
 REGISTRY_BASE_URL = os.getenv("REGISTRY_BASE_URL", "").strip().rstrip("/")
 REGISTRY_TIMEOUT_SECONDS = float(os.getenv("REGISTRY_TIMEOUT_SECONDS", "10"))
-
+REGISTRY_INTERNAL_KEY = os.getenv("REGISTRY_INTERNAL_KEY", "").strip()
 
 # 5. CẤU HÌNH JWT
-
 JWT_ISSUER = os.getenv("JWT_ISSUER", "DeviceRegistry.Api").strip()
 JWT_AUDIENCE = os.getenv("JWT_AUDIENCE", "DeviceRegistry.Client").strip()
 JWT_PUBLIC_KEY_PATH = os.getenv("JWT_PUBLIC_KEY_PATH", "keys/jwt-public.pem").strip()
+
+
+# 6. MQTT BROKER
+MQTT_HOST = os.getenv("MQTT_HOST", "")
+MQTT_PORT = int(os.getenv("MQTT_PORT", "8883"))
+
+MQTT_USERNAME = os.getenv("MQTT_USERNAME", "")
+MQTT_PASSWORD = os.getenv("MQTT_PASSWORD", "")
+
+MQTT_TLS = os.getenv("MQTT_TLS", "true").lower() == "true"
+
+MQTT_TIMEOUT_SECONDS = float(os.getenv("MQTT_TIMEOUT_SECONDS", "10"))
 

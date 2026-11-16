@@ -82,80 +82,31 @@ public class DeviceService
     // 6. CREATE DEVICE
     public async Task<DeviceResponseDto> CreateAsync(int userId,CreateDeviceRequestDto dto)
     {
-        // 6.1. Kiểm tra loại thiết bị.
+        // 6.1. Không cho tạo liên kết GPIO trực tiếp
+        if (dto.MicrocontrollerId.HasValue || dto.Gpio.HasValue)
+        {
+            throw new ArgumentException("Khi tạo Device không được gắn MCU/GPIO trực tiếp.");
+        }
+
+        // 6.2. Kiểm tra loại thiết bị.
         var deviceTypeExists = await _context.DeviceTypes.AnyAsync(dt => dt.Id == dto.DeviceTypeId);
 
         if (!deviceTypeExists)throw new ArgumentException("DeviceType không tồn tại.");
 
-        // 6.2. Kiểm tra MCU và GPIO.
-        //
-        // Khi tạo Device, hai thông tin này phải
-        // cùng có giá trị hoặc cùng null.
-        //
-        // Trường hợp một bên null, một bên có giá trị
-        // được xem là cấu hình chưa hợp lệ.
-        if (dto.MicrocontrollerId.HasValue != dto.Gpio.HasValue)
-        {
-            throw new ArgumentException("MicrocontrollerId và Gpio phải cùng có giá trị hoặc cùng null.");
-        }
-
-        if (dto.Gpio.HasValue && dto.Gpio.Value < 0)throw new ArgumentException("GPIO không hợp lệ.");
-
-        if (dto.MicrocontrollerId.HasValue)
-        {
-            int mcuId = dto.MicrocontrollerId.Value;
-            int gpio = dto.Gpio!.Value;
-
-            // 6.3. Kiểm tra Microcontroller thuộc User.
-            var mcu = await _context.Microcontrollers
-                .AsNoTracking()
-                .FirstOrDefaultAsync(m =>
-                    m.Id == mcuId &&
-                    m.UserId == userId
-                );
-
-            if (mcu == null) throw new ArgumentException("Microcontroller không tồn tại hoặc không thuộc User.");
-
-            // 6.4. Kiểm tra chân GPIO chưa có Device sử dụng.
-            var gpioUsed = await _context.Devices
-                .AnyAsync(d =>
-                    d.MicrocontrollerId == mcuId &&
-                    d.Gpio == gpio
-                );
-
-            if (gpioUsed)throw new InvalidOperationException("GPIO này đã được một Device khác sử dụng.");
-
-            // 6.5. Firmware ESP32 hiện tại chỉ quản lý
-            // tối đa 6 DeviceTask trên một vi điều khiển.
-            //
-            // Đây là giới hạn của firmware ESP32 hiện tại,
-            // không áp dụng cho tất cả loại MCU.
-            if (mcu.Type.Equals("esp32", StringComparison.OrdinalIgnoreCase))
-            {
-                var deviceCount = await _context.Devices.CountAsync(d => d.MicrocontrollerId == mcuId);
-
-                if (deviceCount >= 6) throw new InvalidOperationException("ESP32 hiện tại chỉ hỗ trợ tối đa 6 Device.");
-            }
-
-            // TODO:
-            // Kiểm tra GPIO có hỗ trợ OUTPUT trên board thực tế.
-            // Không phải GPIO nào cũng dùng làm output được.
-        }
-
-        // 6.6. Tạo Device.
+        // 6.3. Tạo Device logic, chưa có liên kết phần cứng
         var device = new Device
         {
             UserId = userId,
             DeviceTypeId = dto.DeviceTypeId,
-
-            MicrocontrollerId = dto.MicrocontrollerId,
-            Gpio = dto.Gpio,
 
             DeviceName = string.IsNullOrWhiteSpace(dto.DeviceName) ? null : dto.DeviceName.Trim(),
 
             Description = string.IsNullOrWhiteSpace(dto.Description)? null: dto.Description.Trim(),
 
             CreateAt = DateTime.UtcNow,
+            
+            MicrocontrollerId = null,
+            Gpio = null,
 
             // Chưa có báo cáo trạng thái từ firmware.
             CurrentStatus = "UNKNOWN",

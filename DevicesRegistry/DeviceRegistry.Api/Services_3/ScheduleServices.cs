@@ -444,4 +444,147 @@ public class ScheduleServices
             await _context.SaveChangesAsync();
         }
     }
+
+
+
+    // 9. XÁC NHẬN TẠO SCHEDULE SAU MQTT ACK
+    public async Task<ScheduleResponseDto> ConfirmCreatedAsync(
+        int deviceId,
+        int userId,
+        int microcontrollerId,
+        int gpio,
+        string commandId,
+        UpsertScheduleRequestDto request)
+    {
+        if (string.IsNullOrWhiteSpace(commandId))
+        {
+            throw new ArgumentException("CommandId không hợp lệ.");
+        }
+
+        // Transaction: hoặc lưu đầy đủ và acknowledged,
+        // hoặc không lưu gì.
+        await using var transaction =
+            await _context.Database.BeginTransactionAsync();
+
+        // 1. Kiểm tra quyền sở hữu và binding hiện tại.
+        var device = await _context.Devices
+            .AsNoTracking()
+            .FirstOrDefaultAsync(d =>
+                d.Id == deviceId &&
+                d.UserId == userId);
+
+        if (device == null)
+            throw new KeyNotFoundException("Không tìm thấy Device.");
+
+        if (device.MicrocontrollerId != microcontrollerId ||
+            device.Gpio != gpio ||
+            device.SyncStatus != "synced")
+        {
+            throw new InvalidOperationException(
+                "MCU/GPIO hoặc trạng thái đồng bộ không khớp."
+            );
+        }
+
+        // 2. Kiểm tra Schedule hiện có.
+        var existing = await GetByDeviceIdAsync(deviceId, userId);
+
+        if (existing != null)
+        {
+            // Cho phép retry xác nhận cùng command_id,
+            // nhưng không cho thay nội dung của lệnh cũ.
+            if (existing.CommandId == commandId &&
+                existing.SyncStatus == "acknowledged" &&
+                existing.Action == request.Action.Trim().ToLowerInvariant() &&
+                existing.ScheduledDelay == request.ScheduledDelay &&
+                existing.Duration == request.Duration &&
+                existing.ScheduledStartAt == request.ScheduledStartAt &&
+                existing.ScheduledEndAt == request.ScheduledEndAt)
+            {
+                return existing;
+            }
+
+            throw new InvalidOperationException(
+                "Device đã có Schedule. Cần xử lý lịch cũ trước."
+            );
+        }
+
+        // 3. Tạo Schedule trong transaction.
+        await UpsertAsync(deviceId, userId, request);
+
+        // 4. Gắn command_id của MQTT.
+        await RegisterCommandAsync(deviceId, commandId);
+
+        // 5. Ghi nhận ACK thành công.
+        await ApplyAcknowledgementAsync(deviceId, commandId, true);
+
+        // 6. Commit toàn bộ thay đổi.
+        await transaction.CommitAsync();
+
+        return (await GetByDeviceIdAsync(deviceId, userId))!;
+    }
+
+
+
+    // 10. XÁC NHẬN HỦY SCHEDULE SAU MQTT ACK
+    public async Task ConfirmCancelledAsync(
+        int deviceId,
+        int userId,
+        int microcontrollerId,
+        int gpio,
+        int scheduleId,
+        string commandId)
+    {
+        if (string.IsNullOrWhiteSpace(commandId))
+        {
+            throw new ArgumentException("CommandId không hợp lệ.");
+        }
+
+        await using var transaction = await _context.Database.BeginTransactionAsync();
+
+        // 1. Kiểm tra Device thuộc User
+        var device = await _context.Devices
+            .Include(d => d.Schedule)
+            .FirstOrDefaultAsync(d =>
+                d.Id == deviceId &&
+                d.UserId == userId);
+
+        if (device == null) throw new KeyNotFoundException("Device không tồn tại.");
+
+        // 2. Kiểm tra binding chưa thay đổi
+        if (device.MicrocontrollerId != microcontrollerId ||
+            device.Gpio != gpio ||
+            device.SyncStatus != "synced")
+        {
+            throw new InvalidOperationException("Liên kết MCU/GPIO không còn khớp.");
+        }
+
+        var schedule = device.Schedule;
+
+        if (schedule == null) throw new KeyNotFoundException("Không tìm thấy Schedule.");
+
+        // 3. Không được xóa nhầm một Schedule mới
+        if (schedule.Id != scheduleId)
+        {
+            throw new InvalidOperationException("Schedule đã thay đổi. Cần đối soát.");
+        }
+
+        if (schedule.SyncStatus != "acknowledged")
+        {
+            throw new InvalidOperationException( "Schedule không ở trạng thái có thể hủy.");
+        }
+
+        // 4. Tận dụng logic hủy đã có trong ScheduleServices
+        await CancelAsync(deviceId, userId);
+
+        // 5. Gắn command_id của lệnh hủy
+        await RegisterCommandAsync(deviceId, commandId);
+
+        // 6. Ghi nhận ACK và xóa bản ghi Schedule
+        await ApplyAcknowledgementAsync(deviceId, commandId, true);
+  
+        // 7. Hoàn tất transaction
+        await transaction.CommitAsync();
+    }
+
+
 }
