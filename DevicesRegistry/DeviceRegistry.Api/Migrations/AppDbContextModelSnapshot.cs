@@ -196,14 +196,8 @@ namespace DeviceRegistry.Api.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
-                    b.Property<DateTime?>("AcknowledgedAt")
-                        .HasColumnType("timestamp with time zone");
-
                     b.Property<string>("Action")
                         .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("CommandId")
                         .HasColumnType("text");
 
                     b.Property<DateTime>("CreatedAt")
@@ -218,15 +212,14 @@ namespace DeviceRegistry.Api.Migrations
                     b.Property<int?>("Duration")
                         .HasColumnType("integer");
 
+                    b.Property<long>("ExpiresAt")
+                        .HasColumnType("bigint");
+
                     b.Property<long?>("ScheduledEndAt")
                         .HasColumnType("bigint");
 
                     b.Property<long?>("ScheduledStartAt")
                         .HasColumnType("bigint");
-
-                    b.Property<string>("SyncStatus")
-                        .IsRequired()
-                        .HasColumnType("text");
 
                     b.Property<DateTime>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");

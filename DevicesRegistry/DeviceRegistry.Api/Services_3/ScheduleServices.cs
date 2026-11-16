@@ -12,123 +12,119 @@ public class ScheduleServices
 {
     private readonly AppDbContext _context;
 
-    // 1. CONSTRUCTOR
     public ScheduleServices(AppDbContext context)
     {
         _context = context;
     }
 
-    // 2. CHUYỂN ENTITY SANG RESPONSE DTO
+    // 1. CHUYỂN SCHEDULE SANG RESPONSE DTO
     private static ScheduleResponseDto ToDto(Schedule schedule)
     {
+        long now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+
         return new ScheduleResponseDto
         {
             Id = schedule.Id,
             DeviceId = schedule.DeviceId,
-
             Action = schedule.Action,
+
             ScheduledDelay = schedule.Delay,
             Duration = schedule.Duration,
-
             ScheduledStartAt = schedule.ScheduledStartAt,
             ScheduledEndAt = schedule.ScheduledEndAt,
 
-            SyncStatus = schedule.SyncStatus,
-            CommandId = schedule.CommandId,
+            ExpiresAt = schedule.ExpiresAt,
+            IsExpired = now >= schedule.ExpiresAt,
 
             CreatedAt = schedule.CreatedAt,
-            UpdatedAt = schedule.UpdatedAt,
-            AcknowledgedAt = schedule.AcknowledgedAt
+            UpdatedAt = schedule.UpdatedAt
         };
     }
 
-    // 3. KIỂM TRA DỮ LIỆU SCHEDULE
-    private static string ValidateSchedule(UpsertScheduleRequestDto dto)
+    // 2. KIỂM TRA LỊCH VÀ TÍNH EXPIRES AT
+    private static (string Action, long ExpiresAt) ValidateAndCalculate(UpsertScheduleRequestDto request,long commandSentAt)
     {
-        // 3.1. Chuẩn hóa action.
-        var action = dto.Action?.Trim().ToLowerInvariant();
+        if (commandSentAt <= 0)
+        {
+            throw new ArgumentException("Thời điểm gửi lệnh không hợp lệ.");
+        }
+
+        string action = request.Action?.Trim().ToLowerInvariant()?? string.Empty;
 
         if (action != "on" && action != "off")
         {
-            throw new ArgumentException("Action chỉ hỗ trợ 'on' hoặc 'off'.");
+            throw new ArgumentException("Action chỉ hỗ trợ on hoặc off.");
         }
 
-        // 3.2. Kiểm tra các giá trị thời gian.
-        // DTO đã có Range, nhưng vẫn kiểm tra tại
-        // Service để bảo vệ cả những nơi gọi trực tiếp.
-        if (dto.ScheduledDelay < 0)throw new ArgumentException("ScheduledDelay phải >= 0.");
+        int? delay = request.ScheduledDelay;
+        int? duration = request.Duration;
+        long? start = request.ScheduledStartAt;
+        long? end = request.ScheduledEndAt;
 
-        if (dto.Duration.HasValue && dto.Duration.Value <= 0) throw new ArgumentException("Duration phải lớn hơn 0.");
+        if (delay < 0) throw new ArgumentException("Delay không được âm.");
 
-        // 3.3. Không cho dùng đồng thời hai kiểu
-        // xác định thời điểm bắt đầu.
-        if (dto.ScheduledDelay.HasValue && dto.ScheduledStartAt.HasValue)
+        if (duration.HasValue && duration.Value <= 0)
+            throw new ArgumentException("Duration phải lớn hơn 0.");
+
+        // Giữ nguyên những tổ hợp đang được NLP hỗ trợ.
+        if (delay.HasValue && start.HasValue)
         {
-            throw new ArgumentException("Không sử dụng đồng thời " + "ScheduledDelay và ScheduledStartAt.");
+            throw new ArgumentException("Không dùng đồng thời Delay và StartAt.");
         }
 
-        // 3.4. Không sử dụng đồng thời hai kiểu
-        // xác định thời điểm kết thúc.
-        if (dto.Duration.HasValue &&dto.ScheduledEndAt.HasValue)
+        if (duration.HasValue && end.HasValue)
         {
-            throw new ArgumentException("Không sử dụng đồng thời " + "Duration và ScheduledEndAt.");
+            throw new ArgumentException("Không dùng đồng thời Duration và EndAt.");
         }
 
-        // 3.5. Schedule phải có ít nhất một tham số
-        // thời gian thực sự có hiệu lực.
-        //
-        // Nếu không có tham số thời gian thì đó là
-        // lệnh ON/OFF tức thời, không phải Schedule.
-        var hasTiming = dto.ScheduledDelay is > 0 ||
-                        dto.Duration.HasValue ||
-                        dto.ScheduledStartAt.HasValue ||
-                        dto.ScheduledEndAt.HasValue;
+        bool hasTiming =
+            delay is > 0 ||
+            duration.HasValue ||
+            start.HasValue ||
+            end.HasValue;
 
         if (!hasTiming)
         {
-            throw new ArgumentException(
-                "Schedule phải có ít nhất một tham số thời gian. " +
-                "ON/OFF tức thời phải dùng API điều khiển."
-            );
+            throw new ArgumentException("Schedule phải có ít nhất một tham số thời gian.");
         }
 
-        // 3.6. Kiểm tra các Unix timestamp.
-        var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-
-        if (dto.ScheduledStartAt.HasValue && dto.ScheduledStartAt.Value <= now)
+        // Giữ quy tắc đã áp dụng trong NLP hiện tại.
+        if (end.HasValue && !delay.HasValue && !start.HasValue)
         {
-            throw new ArgumentException("ScheduledStartAt phải ở tương lai.");
+            throw new ArgumentException("Cần chỉ định thời điểm bắt đầu khi dùng EndAt.");
         }
 
-        if (dto.ScheduledEndAt.HasValue && dto.ScheduledEndAt.Value <= now)
+        if (start.HasValue && start.Value <= commandSentAt)
         {
-            throw new ArgumentException("ScheduledEndAt phải ở tương lai.");
+            throw new ArgumentException("ScheduledStartAt phải sau thời điểm gửi lệnh.");
         }
 
-        // 3.7. Tính mốc bắt đầu dự kiến để kiểm tra
-        // thứ tự của ScheduledEndAt.
-        //
-        // Đây chỉ là phép kiểm tra dữ liệu.
-        // Với ScheduledDelay, ESP tính độ trễ
-        // từ lúc nhận MQTT command, không phải
-        // từ thời điểm Registry lưu database.
-        long expectedStart = dto.ScheduledStartAt ?? (now + (dto.ScheduledDelay ?? 0));
+        if (end.HasValue && end.Value <= commandSentAt)
+        {
+            throw new ArgumentException("ScheduledEndAt phải sau thời điểm gửi lệnh.");
+        }
 
-        if (dto.ScheduledEndAt.HasValue && dto.ScheduledEndAt.Value <= expectedStart)
+        // Thời điểm bắt đầu thực tế theo yêu cầu.
+        long effectiveStart =start ?? (commandSentAt + (delay ?? 0));
+
+        if (end.HasValue && end.Value <= effectiveStart)
         {
             throw new ArgumentException("ScheduledEndAt phải lớn hơn thời điểm bắt đầu.");
         }
 
-        return action;
+        // EndAt có độ ưu tiên cao nhất.
+        // Nếu không có EndAt, hết hạn khi bắt đầu + Duration.
+        // Nếu không có Duration, hết hạn tại thời điểm bắt đầu.
+        long expiresAt = end?? (effectiveStart + (duration ?? 0));
+
+        return (action, expiresAt);
     }
 
-    // 4. GET SCHEDULE BY DEVICE ID
-    public async Task<ScheduleResponseDto?> GetByDeviceIdAsync(int deviceId, int userId)
+    // 3. XEM SCHEDULE CỦA DEVICE THUỘC USER
+    public async Task<ScheduleResponseDto?> GetByDeviceIdAsync(
+        int deviceId,
+        int userId)
     {
-        // Schedule không có UserId riêng.
-        //
-        // Ta kiểm tra quyền sở hữu thông qua
-        // quan hệ Schedule -> Device -> UserId.
         var schedule = await _context.Schedules
             .AsNoTracking()
             .FirstOrDefaultAsync(s =>
@@ -138,19 +134,27 @@ public class ScheduleServices
 
         if (schedule == null) return null;
 
+            
         return ToDto(schedule);
     }
 
-    // 5. CREATE / UPDATE SCHEDULE
-    public async Task<ScheduleResponseDto> UpsertAsync(int deviceId, int userId, UpsertScheduleRequestDto dto)
+    // 4. LƯU SCHEDULE SAU KHI NLP NHẬN ACK TẠO LỊCH
+    public async Task<ScheduleResponseDto> ConfirmCreatedAsync(
+        int deviceId,
+        int userId,
+        int microcontrollerId,
+        int gpio,
+        string commandId,
+        long commandSentAt,
+        UpsertScheduleRequestDto request)
     {
-        // 5.1. Kiểm tra và chuẩn hóa dữ liệu.
-        var action = ValidateSchedule(dto);
+        if (string.IsNullOrWhiteSpace(commandId))
+        {
+            throw new ArgumentException("CommandId không hợp lệ.");
+        }
 
-        // 5.2. Tìm Device thuộc User.
-        //
-        // Include Schedule để biết Device hiện tại
-        // đã có lịch hay chưa.
+        var (action, expiresAt) = ValidateAndCalculate(request, commandSentAt);
+
         var device = await _context.Devices
             .Include(d => d.Schedule)
             .FirstOrDefaultAsync(d =>
@@ -158,80 +162,43 @@ public class ScheduleServices
                 d.UserId == userId
             );
 
-        if (device == null)throw new KeyNotFoundException("Không tìm thấy Device.");
+        if (device == null)
+            throw new KeyNotFoundException("Không tìm thấy Device.");
 
-        // 5.3. Device phải có thông tin phần cứng
-        // để về sau có thể gửi lịch xuống ESP.
-        if (device.MicrocontrollerId == null || device.Gpio == null)
+        // Phải đúng MCU/GPIO mà NLP vừa điều khiển.
+        if (device.MicrocontrollerId != microcontrollerId ||
+            device.Gpio != gpio ||
+            device.SyncStatus != "synced")
         {
-            throw new InvalidOperationException("Device chưa được liên kết với Microcontroller và GPIO.");
+            throw new InvalidOperationException("Liên kết MCU/GPIO không còn khớp.");
         }
 
-        // Không cho lập lịch trên cấu hình đang được
-        // biết là lỗi hoặc sai lệch với phần cứng.
-        //
-        // Device đang pending CREATE_DEVICE_REQUEST
-        // vẫn có thể lưu lịch chờ, nhưng NLP Server
-        // phải chờ Device được đồng bộ trước khi gửi lịch.
-        if (device.SyncStatus == "error" || device.SyncStatus == "out_of_sync")
+        // Một Device chỉ có tối đa một Schedule.
+        if (device.Schedule != null)
         {
-            throw new InvalidOperationException("Cấu hình Device chưa đồng bộ hợp lệ.");
+            throw new InvalidOperationException("Device đã có Schedule. Cần xử lý lịch cũ trước.");
         }
 
-        var schedule = device.Schedule;
-        var now = DateTime.UtcNow;
+        DateTime now = DateTime.UtcNow;
 
-        // 5.4. Nếu đã có lịch, chỉ cho chỉnh sửa khi:
-        //
-        // - Lịch vẫn ở trạng thái pending.
-        // - Chưa gắn command_id cho lần gửi MQTT.
-        //
-        // Không ghi đè lịch mà ESP có thể đang chạy.
-        if (schedule != null)
+        var schedule = new Schedule
         {
-            bool canEdit =
-                schedule.SyncStatus == "pending" &&
-                schedule.CommandId == null;
+            DeviceId = deviceId,
+            Action = action,
 
-            if (!canEdit)
-            {
-                throw new InvalidOperationException(
-                    "Schedule đã được gửi, đang đồng bộ " +
-                    "hoặc có trạng thái chưa xác định. " +
-                    "Cần hoàn tất hoặc hủy lịch cũ trước khi thay thế."
-                );
-            }
-        }
+            Delay = request.ScheduledDelay,
+            Duration = request.Duration,
+            ScheduledStartAt = request.ScheduledStartAt,
+            ScheduledEndAt = request.ScheduledEndAt,
 
-        // 5.5. Nếu chưa có Schedule thì tạo mới.
-        if (schedule == null)
-        {
-            schedule = new Schedule
-            {
-                DeviceId = deviceId,
-                CreatedAt = now
-            };
+            ExpiresAt = expiresAt,
 
-            _context.Schedules.Add(schedule);
-        }
+            CreatedAt = now,
+            UpdatedAt = now
+        };
 
-        // 5.6. Gán thông tin lịch.
-        schedule.Action = action;
-        schedule.Delay = dto.ScheduledDelay;
-        schedule.Duration = dto.Duration;
+        _context.Schedules.Add(schedule);
 
-        schedule.ScheduledStartAt = dto.ScheduledStartAt;
-        schedule.ScheduledEndAt = dto.ScheduledEndAt;
-
-        // Lưu cấu hình mong muốn.
-        // KHÔNG đánh dấu đã nhận ACK.
-        schedule.SyncStatus = "pending";
-
-        schedule.CommandId = null;
-        schedule.AcknowledgedAt = null;
-        schedule.UpdatedAt = now;
-
-        // 5.7. Lưu database.
         try
         {
             await _context.SaveChangesAsync();
@@ -241,291 +208,16 @@ public class ScheduleServices
             pg.SqlState == PostgresErrorCodes.UniqueViolation
         )
         {
-            // Bảo vệ trường hợp hai request đồng thời
-            // cùng tạo Schedule cho một Device.
-            //
-            // Quan hệ 1-1 phải có unique index DeviceId.
             throw new InvalidOperationException(
-                "Device đã có Schedule. Hãy tải lại dữ liệu.",
+                "Device đã có Schedule. Cần tải lại dữ liệu.",
                 ex
             );
         }
 
-        // Lúc này chỉ mới lưu database.
-        // Chưa có MQTT command được gửi.
         return ToDto(schedule);
     }
 
-    // 6. DELETE / CANCEL SCHEDULE
-    // Trả về:
-    // - null: Lịch chưa gửi MQTT, đã xóa khỏi database.
-    // - DTO : Đang chờ gửi / xác nhận yêu cầu hủy.
-    //
-    // Trường hợp lịch đã gửi không được xóa ngay.
-    public async Task<ScheduleResponseDto?> CancelAsync(int deviceId,int userId)
-    {
-        var device = await _context.Devices
-            .Include(d => d.Schedule)
-            .FirstOrDefaultAsync(d =>
-                d.Id == deviceId &&
-                d.UserId == userId
-            );
-
-        if (device == null)throw new KeyNotFoundException("Không tìm thấy Device.");
-
-        var schedule = device.Schedule;
-
-        if (schedule == null) throw new KeyNotFoundException("Device không có Schedule.");
-
-        // 6.1. Trường hợp lịch pending nhưng chưa được
-        // gắn command_id, tức là chưa đưa vào luồng gửi.
-        //
-        // Có thể xóa bản ghi trực tiếp vì lịch mới này
-        // chưa được chuyển cho MQTT Handler.
-        if (schedule.SyncStatus == "pending" && schedule.CommandId == null)
-        {
-            _context.Schedules.Remove(schedule);
-
-            await _context.SaveChangesAsync();
-
-            return null;
-        }
-
-        // 6.2. Trường hợp đã có CREATE/CONTROL command
-        // đang chờ ACK.
-        //
-        // Không gửi CANCEL đè lên command đang chờ,
-        // vì có thể dẫn tới thứ tự MQTT không mong muốn.
-        if (schedule.SyncStatus == "pending")
-        {
-            throw new InvalidOperationException(
-                "Schedule đang chờ phản hồi từ ESP. " +
-                "Chưa thể hủy cho tới khi trạng thái được xác định."
-            );
-        }
-
-        // 6.3. Đã yêu cầu hủy trước đó.
-        // Trả về trạng thái hiện tại, không tạo yêu cầu trùng.
-        if (schedule.SyncStatus == "cancel_pending")return ToDto(schedule);
-
-        // 6.4. Muốn hủy trên firmware cần biết MCU/GPIO.
-        if (device.MicrocontrollerId == null || device.Gpio == null)
-        {
-            // Không có tuyến gửi lệnh.
-            // Không được báo đã hủy lịch thực tế.
-            throw new InvalidOperationException(
-                "Device không còn liên kết phần cứng. " +
-                "Không thể xác nhận hủy lịch trên ESP."
-            );
-        }
-
-        // 6.5. Ghi nhận yêu cầu hủy.
-        //
-        // Có thể đi từ acknowledged, failed hoặc unknown
-        // sang cancel_pending.
-        //
-        // NLP Server sẽ gửi action = cancel_schedule.
-        schedule.SyncStatus = "cancel_pending";
-
-        // CommandId cũ không còn đại diện cho thao tác mới.
-        // MQTT Handler sẽ đăng ký command_id của lệnh hủy.
-        schedule.CommandId = null;
-        schedule.UpdatedAt = DateTime.UtcNow;
-
-        await _context.SaveChangesAsync();
-
-        return ToDto(schedule);
-    }
-
-    // 7. ĐĂNG KÝ COMMAND ID CHO MQTT
-
-    // Hàm nội bộ, KHÔNG expose cho User qua Controller.
-    //
-    // Trong đợt tích hợp NLP Server, thành phần điều phối
-    // gọi hàm này qua API nội bộ đã xác thực trước khi
-    // publish MQTT để gắn command_id cho thao tác.
-    public async Task RegisterCommandAsync(int deviceId, string commandId)
-    {
-        if (string.IsNullOrWhiteSpace(commandId)) throw new ArgumentException("CommandId không được để trống.");
-
-        var schedule = await _context.Schedules.FirstOrDefaultAsync(s => s.DeviceId == deviceId);
-
-        if (schedule == null) throw new KeyNotFoundException("Không tìm thấy Schedule.");
-
-        if (
-            schedule.SyncStatus != "pending" &&
-            schedule.SyncStatus != "cancel_pending"
-        )
-        {
-            throw new InvalidOperationException("Schedule không ở trạng thái chờ đồng bộ.");
-        }
-
-        // Không cho một thao tác có hai command_id khác nhau.
-        // Gọi lại cùng command_id thì chấp nhận để hỗ trợ retry.
-        if (schedule.CommandId != null && schedule.CommandId != commandId)
-        {
-            throw new InvalidOperationException("Schedule đã có CommandId đang xử lý.");
-        }
-
-        schedule.CommandId = commandId;
-        schedule.UpdatedAt = DateTime.UtcNow;
-
-        await _context.SaveChangesAsync();
-    }
-
-    // 8. XỬ LÝ MQTT ACK
-    // Hàm nội bộ, KHÔNG expose trực tiếp cho User.
-    //
-    // accepted = true chỉ khi firmware phản hồi rõ ràng
-    // rằng đã chấp nhận hoặc hủy lịch thành công.
-    //
-    // Không coi việc publish MQTT thành công là ACK.
-    //
-    // Không dùng hàm này nếu response firmware hiện tại
-    // chưa đủ thông tin để xác nhận thành công/thất bại.
-    public async Task ApplyAcknowledgementAsync(int deviceId, string commandId,bool accepted)
-    {
-        var schedule = await _context.Schedules
-            .FirstOrDefaultAsync(s => s.DeviceId == deviceId);
-
-        if (schedule == null) throw new KeyNotFoundException("Không tìm thấy Schedule.");
-
-        // Kiểm tra command_id để tránh ACK cũ
-        // cập nhật nhầm Schedule mới.
-        if (schedule.CommandId != commandId)
-        {
-            throw new InvalidOperationException("CommandId không khớp với thao tác đang chờ.");
-        }
-
-        if (
-            schedule.SyncStatus != "pending" &&
-            schedule.SyncStatus != "cancel_pending"
-        )
-        {
-            throw new InvalidOperationException("Schedule không chờ xác nhận MQTT.");
-        }
-
-        var now = DateTime.UtcNow;
-
-        // 8.1. Firmware báo từ chối hoặc thất bại.
-        if (!accepted)
-        {
-            schedule.SyncStatus = "failed";
-            schedule.UpdatedAt = now;
-
-            await _context.SaveChangesAsync();
-            return;
-        }
-
-        // 8.2. Xác nhận tạo / thiết lập lịch.
-        if (schedule.SyncStatus == "pending")
-        {
-            schedule.SyncStatus = "acknowledged";
-
-            // Thời điểm ESP xác nhận tiếp nhận lịch,
-            // KHÔNG phải thời điểm thực thi lịch.
-            schedule.AcknowledgedAt = now;
-            schedule.UpdatedAt = now;
-
-            await _context.SaveChangesAsync();
-            return;
-        }
-
-        // 8.3. Xác nhận hủy lịch.
-        if (schedule.SyncStatus == "cancel_pending")
-        {
-            // Chỉ sau ACK hủy hợp lệ mới xóa
-            // Schedule hiện hành khỏi Registry.
-            //
-            // Theo firmware, hủy lịch không làm thay đổi
-            // trạng thái ON/OFF hiện tại.
-            _context.Schedules.Remove(schedule);
-
-            await _context.SaveChangesAsync();
-        }
-    }
-
-
-
-    // 9. XÁC NHẬN TẠO SCHEDULE SAU MQTT ACK
-    public async Task<ScheduleResponseDto> ConfirmCreatedAsync(
-        int deviceId,
-        int userId,
-        int microcontrollerId,
-        int gpio,
-        string commandId,
-        UpsertScheduleRequestDto request)
-    {
-        if (string.IsNullOrWhiteSpace(commandId))
-        {
-            throw new ArgumentException("CommandId không hợp lệ.");
-        }
-
-        // Transaction: hoặc lưu đầy đủ và acknowledged,
-        // hoặc không lưu gì.
-        await using var transaction =
-            await _context.Database.BeginTransactionAsync();
-
-        // 1. Kiểm tra quyền sở hữu và binding hiện tại.
-        var device = await _context.Devices
-            .AsNoTracking()
-            .FirstOrDefaultAsync(d =>
-                d.Id == deviceId &&
-                d.UserId == userId);
-
-        if (device == null)
-            throw new KeyNotFoundException("Không tìm thấy Device.");
-
-        if (device.MicrocontrollerId != microcontrollerId ||
-            device.Gpio != gpio ||
-            device.SyncStatus != "synced")
-        {
-            throw new InvalidOperationException(
-                "MCU/GPIO hoặc trạng thái đồng bộ không khớp."
-            );
-        }
-
-        // 2. Kiểm tra Schedule hiện có.
-        var existing = await GetByDeviceIdAsync(deviceId, userId);
-
-        if (existing != null)
-        {
-            // Cho phép retry xác nhận cùng command_id,
-            // nhưng không cho thay nội dung của lệnh cũ.
-            if (existing.CommandId == commandId &&
-                existing.SyncStatus == "acknowledged" &&
-                existing.Action == request.Action.Trim().ToLowerInvariant() &&
-                existing.ScheduledDelay == request.ScheduledDelay &&
-                existing.Duration == request.Duration &&
-                existing.ScheduledStartAt == request.ScheduledStartAt &&
-                existing.ScheduledEndAt == request.ScheduledEndAt)
-            {
-                return existing;
-            }
-
-            throw new InvalidOperationException(
-                "Device đã có Schedule. Cần xử lý lịch cũ trước."
-            );
-        }
-
-        // 3. Tạo Schedule trong transaction.
-        await UpsertAsync(deviceId, userId, request);
-
-        // 4. Gắn command_id của MQTT.
-        await RegisterCommandAsync(deviceId, commandId);
-
-        // 5. Ghi nhận ACK thành công.
-        await ApplyAcknowledgementAsync(deviceId, commandId, true);
-
-        // 6. Commit toàn bộ thay đổi.
-        await transaction.CommitAsync();
-
-        return (await GetByDeviceIdAsync(deviceId, userId))!;
-    }
-
-
-
-    // 10. XÁC NHẬN HỦY SCHEDULE SAU MQTT ACK
+    // 5. XÓA SCHEDULE SAU KHI NLP NHẬN ACK HỦY LỊCH
     public async Task ConfirmCancelledAsync(
         int deviceId,
         int userId,
@@ -536,21 +228,20 @@ public class ScheduleServices
     {
         if (string.IsNullOrWhiteSpace(commandId))
         {
-            throw new ArgumentException("CommandId không hợp lệ.");
+            throw new ArgumentException( "CommandId không hợp lệ.");
         }
 
-        await using var transaction = await _context.Database.BeginTransactionAsync();
-
-        // 1. Kiểm tra Device thuộc User
         var device = await _context.Devices
-            .Include(d => d.Schedule)
+            .AsNoTracking()
             .FirstOrDefaultAsync(d =>
                 d.Id == deviceId &&
-                d.UserId == userId);
+                d.UserId == userId
+            );
 
-        if (device == null) throw new KeyNotFoundException("Device không tồn tại.");
+        if (device == null)
+            throw new KeyNotFoundException("Không tìm thấy Device.");
 
-        // 2. Kiểm tra binding chưa thay đổi
+        // Không cho ACK cũ xóa lịch sau khi đổi binding.
         if (device.MicrocontrollerId != microcontrollerId ||
             device.Gpio != gpio ||
             device.SyncStatus != "synced")
@@ -558,33 +249,18 @@ public class ScheduleServices
             throw new InvalidOperationException("Liên kết MCU/GPIO không còn khớp.");
         }
 
-        var schedule = device.Schedule;
+        // Xóa theo đúng ScheduleId đã đọc trước khi gửi MQTT.
+        // Không được xóa nhầm một lịch mới của cùng Device.
+        int deleted = await _context.Schedules
+            .Where(s =>
+                s.Id == scheduleId &&
+                s.DeviceId == deviceId
+            )
+            .ExecuteDeleteAsync();
 
-        if (schedule == null) throw new KeyNotFoundException("Không tìm thấy Schedule.");
-
-        // 3. Không được xóa nhầm một Schedule mới
-        if (schedule.Id != scheduleId)
+        if (deleted == 0)
         {
-            throw new InvalidOperationException("Schedule đã thay đổi. Cần đối soát.");
+            throw new InvalidOperationException("Schedule không còn khớp. Cần đối soát.");
         }
-
-        if (schedule.SyncStatus != "acknowledged")
-        {
-            throw new InvalidOperationException( "Schedule không ở trạng thái có thể hủy.");
-        }
-
-        // 4. Tận dụng logic hủy đã có trong ScheduleServices
-        await CancelAsync(deviceId, userId);
-
-        // 5. Gắn command_id của lệnh hủy
-        await RegisterCommandAsync(deviceId, commandId);
-
-        // 6. Ghi nhận ACK và xóa bản ghi Schedule
-        await ApplyAcknowledgementAsync(deviceId, commandId, true);
-  
-        // 7. Hoàn tất transaction
-        await transaction.CommitAsync();
     }
-
-
 }

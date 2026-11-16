@@ -9,7 +9,8 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace DeviceRegistry.Api.Controllers;
 
-// Dữ liệu NLP Server gửi sau ACK.
+
+// NLP Server gửi dữ liệu sau khi ESP32 xác nhận tạo lịch.
 public class ConfirmScheduleRequestDto : UpsertScheduleRequestDto
 {
     [Range(1, int.MaxValue)]
@@ -23,7 +24,33 @@ public class ConfirmScheduleRequestDto : UpsertScheduleRequestDto
 
     [Required]
     public string CommandId { get; set; } = "";
+
+    // Unix timestamp giây lúc NLP gửi MQTT command.
+    // Dùng làm mốc tính ExpiresAt cho lịch tương đối.
+    [Range(1, long.MaxValue)]
+    public long CommandSentAt { get; set; }
 }
+
+
+// NLP Server gửi dữ liệu sau khi ESP32 xác nhận hủy lịch.
+public class ConfirmCancelScheduleRequestDto
+{
+    [Range(1, int.MaxValue)]
+    public int UserId { get; set; }
+
+    [Range(1, int.MaxValue)]
+    public int MicrocontrollerId { get; set; }
+
+    [Range(0, 39)]
+    public int Gpio { get; set; }
+
+    [Range(1, int.MaxValue)]
+    public int ScheduleId { get; set; }
+
+    [Required]
+    public string CommandId { get; set; } = "";
+}
+
 
 [ApiController]
 [Authorize(Policy = "NlpServerOnly")]
@@ -37,11 +64,12 @@ public class InternalScheduleController : ControllerBase
         _service = service;
     }
 
-    // Chỉ xác nhận và lưu lịch sau ACK của ESP32.
+
+    // 1. XÁC NHẬN TẠO SCHEDULE
+    // POST /api/internal/devices/{deviceId}/schedule/confirm
+    // Chỉ lưu Schedule sau ACK tạo lịch của ESP32.
     [HttpPost("{deviceId:int}/schedule/confirm")]
-    public async Task<IActionResult> ConfirmSchedule(
-        int deviceId,
-        [FromBody] ConfirmScheduleRequestDto request)
+    public async Task<IActionResult> ConfirmSchedule(int deviceId,[FromBody] ConfirmScheduleRequestDto request)
     {
         try
         {
@@ -51,6 +79,7 @@ public class InternalScheduleController : ControllerBase
                 request.MicrocontrollerId,
                 request.Gpio,
                 request.CommandId,
+                request.CommandSentAt,
                 request
             );
 
@@ -58,22 +87,31 @@ public class InternalScheduleController : ControllerBase
         }
         catch (KeyNotFoundException ex)
         {
-            return NotFound(new { message = ex.Message });
+            return NotFound(new
+            {
+                message = ex.Message
+            });
         }
         catch (ArgumentException ex)
         {
-            return BadRequest(new { message = ex.Message });
+            return BadRequest(new
+            {
+                message = ex.Message
+            });
         }
         catch (InvalidOperationException ex)
         {
-            return Conflict(new { message = ex.Message });
+            return Conflict(new
+            {
+                message = ex.Message
+            });
         }
     }
 
 
-
+    // 2. XÁC NHẬN HỦY SCHEDULE
     // POST /api/internal/devices/{deviceId}/schedule/cancel-confirm
-    // Chỉ xóa Schedule sau khi NLP Server đã nhận ACK hủy.
+    // Chỉ xóa Schedule sau ACK hủy lịch của ESP32.
     [HttpPost("{deviceId:int}/schedule/cancel-confirm")]
     public async Task<IActionResult> ConfirmCancelSchedule(
         int deviceId,
@@ -94,36 +132,24 @@ public class InternalScheduleController : ControllerBase
         }
         catch (KeyNotFoundException ex)
         {
-            return NotFound(new { message = ex.Message });
+            return NotFound(new
+            {
+                message = ex.Message
+            });
         }
         catch (ArgumentException ex)
         {
-            return BadRequest(new { message = ex.Message });
+            return BadRequest(new
+            {
+                message = ex.Message
+            });
         }
         catch (InvalidOperationException ex)
         {
-            return Conflict(new { message = ex.Message });
+            return Conflict(new
+            {
+                message = ex.Message
+            });
         }
     }
-
-}
-
-
-
-public class ConfirmCancelScheduleRequestDto
-{
-    [Range(1, int.MaxValue)]
-    public int UserId { get; set; }
-
-    [Range(1, int.MaxValue)]
-    public int MicrocontrollerId { get; set; }
-
-    [Range(0, 39)]
-    public int Gpio { get; set; }
-
-    [Range(1, int.MaxValue)]
-    public int ScheduleId { get; set; }
-
-    [Required]
-    public string CommandId { get; set; } = "";
 }

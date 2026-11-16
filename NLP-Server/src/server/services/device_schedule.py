@@ -1,4 +1,3 @@
-
 import asyncio
 import json
 import ssl
@@ -9,10 +8,9 @@ from typing import Literal
 from uuid import uuid4
 import httpx
 from aiomqtt import Client, MqttError
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import HTTPException
 from pydantic import BaseModel, Field
 
-from src.server.auth import verify_jwt
 from src.server.config import (
     REGISTRY_BASE_URL,
     REGISTRY_INTERNAL_KEY,
@@ -24,15 +22,10 @@ from src.server.config import (
     MQTT_TLS,
     MQTT_TIMEOUT_SECONDS,
 )
-from src.server.device_binding import lock as operation_lock
-from src.server.device_control import load_device_context
-from src.server.mqtt_binding import normalize_mac
+from src.server.services.device_binding import lock as operation_lock
+from src.server.services.device_control import load_device_context
+from src.server.clients.mqtt_binding import normalize_mac
 
-
-router = APIRouter(
-    prefix="/api/devices",
-    tags=["Manual Schedule"],
-)
 
 
 # 1. REQUEST TẠO LỊCH
@@ -134,9 +127,10 @@ async def send_schedule_mqtt(
     response_topic = f"{prefix}/FROM_ESP32/command"
 
     command_id = uuid4().hex
-    send_time = datetime.now(
-        timezone.utc
-    ).isoformat(timespec="seconds")
+
+    sent_at = datetime.now(timezone.utc)
+    send_time = sent_at.isoformat(timespec="seconds")
+    command_sent_at = int(sent_at.timestamp())
 
     
     # body = None nghĩa là hủy Schedule.
@@ -231,7 +225,7 @@ async def send_schedule_mqtt(
                         continue
 
                     # ACK thuộc đúng request.
-                    return command_id, ack
+                    return command_id, ack, command_sent_at
 
     except (TimeoutError, MqttError, OSError) as exc:
         fail(
@@ -255,6 +249,7 @@ async def confirm_schedule(
     mcu_id: int,
     gpio: int,
     command_id: str,
+    command_sent_at: int,
     body: CreateScheduleRequest,
 ):
     payload = {
@@ -267,6 +262,7 @@ async def confirm_schedule(
         "duration": body.duration,
         "scheduledStartAt": body.scheduledStartAt,
         "scheduledEndAt": body.scheduledEndAt,
+        "commandSentAt": command_sent_at,
     }
 
     try:
@@ -294,8 +290,7 @@ async def confirm_schedule(
 
 
 # 6. API TẠO LỊCH THỦ CÔNG
-@router.post("/{device_id}/schedule")
-async def create_schedule(device_id: int, body: CreateScheduleRequest, token: str = Depends(verify_jwt),):
+async def create_schedule(device_id: int,body: CreateScheduleRequest,token: str,):
     if device_id <= 0:
         fail(422, "DeviceId không hợp lệ.")
 
@@ -313,7 +308,7 @@ async def create_schedule(device_id: int, body: CreateScheduleRequest, token: st
         await check_existing_schedule(device_id, token)
 
         # 6.3. Gửi lịch xuống ESP32.
-        command_id, ack = await send_schedule_mqtt( mcu["macAddress"], device["gpio"], body,)
+        command_id, ack, command_sent_at = await send_schedule_mqtt(mcu["macAddress"], device["gpio"], body,)
 
         # 6.4. ESP32 từ chối -> không lưu Schedule.
         if ack.get("status") != "success":
@@ -326,6 +321,7 @@ async def create_schedule(device_id: int, body: CreateScheduleRequest, token: st
             mcu["id"],
             device["gpio"],
             command_id,
+            command_sent_at,
             body,
         )
 
@@ -419,11 +415,7 @@ async def confirm_cancel_schedule(
 
 
 # 9. API HỦY SCHEDULE THỦ CÔNG
-@router.delete("/{device_id}/schedule")
-async def cancel_schedule(
-    device_id: int,
-    token: str = Depends(verify_jwt),
-):
+async def cancel_schedule( device_id: int,token: str,):
     if device_id <= 0:
         fail(422, "DeviceId không hợp lệ.")
 
@@ -433,9 +425,7 @@ async def cancel_schedule(
     async with operation_lock:
 
         # 9.1. Registry xác minh JWT và Device/MCU thuộc User.
-        device, mcu = await load_device_context(
-            token, device_id
-        )
+        device, mcu = await load_device_context(token, device_id)
 
         # 9.2. Đọc lịch hiện tại.
         schedule = await load_schedule(device_id, token)
@@ -445,21 +435,16 @@ async def cancel_schedule(
         if type(schedule_id) is not int or schedule_id <= 0:
             fail(502, "ScheduleId không hợp lệ.")
 
-        # Chỉ hủy lịch đã được ESP32 tiếp nhận.
-        # Trạng thái pending/unknown phải đối soát riêng.
-        if schedule.get("syncStatus") != "acknowledged":
-            fail(
-                409,
-                "Schedule chưa ở trạng thái acknowledged. "
-                "Cần đối soát trước khi hủy."
-            )
+        
 
         # 9.3. Gửi cancel_schedule tới ESP32.
-        command_id, ack = await send_schedule_mqtt(
+        command_id, ack, _ = await send_schedule_mqtt(
             mcu["macAddress"],
             device["gpio"],
             None,
         )
+# Dấu _ thể hiện thời điểm gửi lệnh không cần sử dụng khi hủy.
+# Giữ nguyên phần xác minh ACK, scheduleId, operation_lock và lời gọi confirm_cancel_schedule().
 
         # 9.4. ESP32 từ chối -> không sửa Registry.
         if ack.get("status") != "success":

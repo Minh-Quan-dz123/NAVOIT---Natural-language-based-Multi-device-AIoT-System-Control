@@ -1,3 +1,4 @@
+
 # Nhận yêu cầu từ Frontend.
 # Gọi Registry bằng JWT của User để lấy Device và MCU thuộc tài khoản.
 # Kiểm tra điều kiện liên kết/tháo.
@@ -8,7 +9,7 @@ import asyncio
 
 import httpx
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 
@@ -17,16 +18,11 @@ from src.server.config import (
     REGISTRY_INTERNAL_KEY,
 )
 
-from src.server.mqtt_binding import (
+from src.server.clients.mqtt_binding import (
     send_device_command,
     normalize_mac,
 )
 
-
-router = APIRouter(
-    prefix="/api/devices",
-    tags=["Device Binding"],
-)
 
 bearer = HTTPBearer(auto_error=False)
 
@@ -59,7 +55,9 @@ def error(code: int, message: str, state: str = "failed"):
 
 
 # 3. LẤY JWT TỪ FRONTEND
-def user_token(credentials: HTTPAuthorizationCredentials | None = Depends(bearer),) -> str:
+def user_token(
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer),
+) -> str:
     if credentials is None:
         error(401, "Thiếu JWT người dùng.")
 
@@ -86,7 +84,10 @@ async def get_json(client: httpx.AsyncClient, path: str):
 
 
 # 5. LẤY DEVICE VÀ MCU CỦA USER
-async def load_user_data(client: httpx.AsyncClient, device_id: int,):
+async def load_user_data(
+    client: httpx.AsyncClient,
+    device_id: int,
+):
     # Registry kiểm tra JWT và lọc theo UserId.
     catalog = await get_json(client, "/api/device/catalog")
     mcus = await get_json(client, "/api/microcontroller")
@@ -99,7 +100,10 @@ async def load_user_data(client: httpx.AsyncClient, device_id: int,):
     if not isinstance(devices, list):
         error(502, "Device Catalog không hợp lệ.")
 
-    device = next((d for d in devices if d.get("deviceId") == device_id), None,)
+    device = next(
+        (d for d in devices if d.get("deviceId") == device_id),
+        None,
+    )
 
     if device is None:
         error(404, "Device không thuộc người dùng hoặc không tồn tại.")
@@ -136,7 +140,9 @@ async def save_binding(
     gpio: int | None,
 ):
     try:
-        async with httpx.AsyncClient(base_url=REGISTRY_BASE_URL, timeout=10,
+        async with httpx.AsyncClient(
+            base_url=REGISTRY_BASE_URL,
+            timeout=10,
         ) as client:
 
             response = await client.patch(
@@ -183,11 +189,16 @@ async def binding_operation(
         # 8.1. Đọc dữ liệu theo quyền User
         async with httpx.AsyncClient(
             base_url=REGISTRY_BASE_URL,
-            headers={ "Authorization": f"Bearer {token}",},
+            headers={
+                "Authorization": f"Bearer {token}",
+            },
             timeout=10,
         ) as client:
 
-            device, devices, mcus = await load_user_data( client, device_id)
+            device, devices, mcus = await load_user_data(
+                client,
+                device_id,
+            )
 
         # 8.2. LIÊN KẾT DEVICE
         if command == "CREATE_DEVICE_REQUEST":
@@ -276,25 +287,3 @@ async def binding_operation(
             "commandId": command_id,
             "binding": result,
         }
-
-
-# 9. API LIÊN KẾT
-@router.post("/{device_id}/binding")
-async def bind_device(device_id: int, body: BindRequest, token: str = Depends(user_token),):
-    return await binding_operation(
-        device_id,
-        token,
-        "CREATE_DEVICE_REQUEST",
-        body.microcontrollerId,
-        body.gpio,
-    )
-
-
-# 10. API THÁO LIÊN KẾT
-@router.delete("/{device_id}/binding")
-async def unbind_device(device_id: int, token: str = Depends(user_token),):
-    return await binding_operation(
-        device_id,
-        token,
-        "DELETE_DEVICE_REQUEST",
-    )

@@ -1,3 +1,4 @@
+
 import { useEffect, useState } from "react";
 
 import {
@@ -6,8 +7,9 @@ import {
     cancelDeviceSchedule,
 } from "../api/deviceScheduleApi";
 
-export default function ManualScheduleControls({ devices }) 
-{
+
+export default function ManualScheduleControls({ devices }) {
+    // 1. FORM TẠO SCHEDULE
     const [deviceId, setDeviceId] = useState("");
     const [action, setAction] = useState("on");
 
@@ -24,7 +26,7 @@ export default function ManualScheduleControls({ devices })
     const [error, setError] = useState("");
     const [message, setMessage] = useState("");
 
-    
+    // 2. DANH SÁCH SCHEDULE
     const [scheduleRows, setScheduleRows] = useState([]);
     const [loadingSchedules, setLoadingSchedules] = useState(false);
     const [scheduleVersion, setScheduleVersion] = useState(0);
@@ -32,30 +34,34 @@ export default function ManualScheduleControls({ devices })
     const [unknownCancelIds, setUnknownCancelIds] = useState([]);
 
 
-
-    // 1. CHUYỂN DATETIME-LOCAL SANG UNIX SECONDS
-    function toUnixSeconds(value) 
-    {
+    // 3. CHUYỂN DATETIME-LOCAL SANG UNIX SECONDS
+    function toUnixSeconds(value) {
         const timestamp = new Date(value).getTime();
-        if (!value || !Number.isFinite(timestamp)) throw new Error("Ngày giờ không hợp lệ.");
+
+        if (!value || !Number.isFinite(timestamp)) {
+            throw new Error("Ngày giờ không hợp lệ.");
+        }
 
         return Math.floor(timestamp / 1000);
     }
 
 
-    // 2. CHUYỂN GIÁ TRỊ GIÂY SANG SỐ NGUYÊN
-    function positiveSeconds(value, label) 
-    {
+    // 4. KIỂM TRA GIÁ TRỊ GIÂY
+    function positiveSeconds(value, label) {
         const number = Number(value);
-        if (!Number.isSafeInteger(number) || number <= 0)  throw new Error(`${label} phải là số giây nguyên dương.`);
+
+        if (!Number.isSafeInteger(number) || number <= 0) {
+            throw new Error(
+                `${label} phải là số giây nguyên dương.`
+            );
+        }
 
         return number;
     }
 
 
-    // 3. TẠO BODY ĐÚNG FORMAT NLP SERVER
-    function buildSchedule() 
-    {
+    // 5. XÂY DỰNG REQUEST TẠO SCHEDULE
+    function buildSchedule() {
         const body = {
             action,
             scheduledDelay: null,
@@ -64,25 +70,28 @@ export default function ManualScheduleControls({ devices })
             scheduledEndAt: null,
         };
 
-        if (startMode === "delay")
-        {
-            body.scheduledDelay = positiveSeconds(delaySeconds, "Thời gian trì hoãn" );
+        // Thời điểm bắt đầu
+        if (startMode === "delay") {
+            body.scheduledDelay = positiveSeconds(
+                delaySeconds,
+                "Thời gian trì hoãn"
+            );
         }
 
-        if (startMode === "at") 
-        {
+        if (startMode === "at") {
             body.scheduledStartAt = toUnixSeconds(startDate);
         }
 
-        if (endMode === "duration") 
-        {
-            body.duration = positiveSeconds(durationSeconds, "Thời lượng"); 
+        // Thời điểm kết thúc
+        if (endMode === "duration") {
+            body.duration = positiveSeconds(
+                durationSeconds,
+                "Thời lượng"
+            );
         }
 
-        if (endMode === "at") 
-        {
-            if (startMode === "now") 
-            {
+        if (endMode === "at") {
+            if (startMode === "now") {
                 throw new Error(
                     "Khi dùng thời điểm kết thúc, " +
                     "hãy chọn thời điểm bắt đầu cụ thể."
@@ -92,8 +101,8 @@ export default function ManualScheduleControls({ devices })
             body.scheduledEndAt = toUnixSeconds(endDate);
         }
 
-        if (startMode === "now" && endMode === "none") 
-        {
+        // Không tạo Schedule cho ON/OFF tức thời.
+        if (startMode === "now" && endMode === "none") {
             throw new Error(
                 "Lệnh tức thời không có thời lượng. " +
                 "Hãy dùng chức năng Bật/Tắt thủ công."
@@ -104,9 +113,8 @@ export default function ManualScheduleControls({ devices })
     }
 
 
-    // 4. GỬI YÊU CẦU
-    async function handleSubmit(event) 
-    {
+    // 6. GỬI YÊU CẦU TẠO SCHEDULE
+    async function handleSubmit(event) {
         event.preventDefault();
 
         if (!deviceId || busy || unknown) return;
@@ -115,34 +123,38 @@ export default function ManualScheduleControls({ devices })
         setError("");
         setMessage("");
 
-        try 
-        {
+        try {
             const body = buildSchedule();
 
-            const result = await createDeviceSchedule(Number(deviceId), body);
+            // Frontend gửi qua NLP Server.
+            // NLP gửi MQTT, nhận ACK rồi xác nhận Registry.
+            const result = await createDeviceSchedule(
+                Number(deviceId),
+                body
+            );
 
             setMessage(
-                `ESP32 đã tiếp nhận lịch. Registry lưu ` +
-                `Schedule #${result.schedule.id}, ` +
-                `trạng thái: ${result.schedule.syncStatus}.`
+                `ESP32 đã tiếp nhận lịch. ` +
+                `Registry lưu Schedule #${result.schedule.id}.`
             );
 
             refreshSchedules();
-        } 
-        catch (err) 
-        {
+        }
+        catch (err) {
             setError(err.message);
-            if (err.state === "unknown") setUnknown(true);
 
-        } 
-        finally 
-        {
+            if (err.state === "unknown") {
+                setUnknown(true);
+            }
+        }
+        finally {
             setBusy(false);
         }
     }
 
 
-    // 5. CHỈ CHỌN DEVICE ĐÃ LIÊN KẾT
+    // 7. CHỈ CHỌN DEVICE ĐÃ LIÊN KẾT
+    // Đây là SyncStatus của Device, không phải Schedule.
     const readyDevices = (devices || []).filter(
         device =>
             device.gpio !== null &&
@@ -150,22 +162,20 @@ export default function ManualScheduleControls({ devices })
     );
 
 
-    // 6. TẢI CÁC SCHEDULE CỦA MCU ĐANG CHỌN
+    // 8. TẢI SCHEDULE CỦA CÁC DEVICE
     useEffect(() => {
         let cancelled = false;
 
-        async function loadSchedules() 
-        {
-            if (!devices || devices.length === 0) 
-            {
+        async function loadSchedules() {
+            if (!devices || devices.length === 0) {
                 setScheduleRows([]);
                 return;
             }
+
             setLoadingSchedules(true);
             setScheduleRows([]);
 
-            try
-            {
+            try {
                 const rows = await Promise.all(
                     devices.map(async (device) => ({
                         device,
@@ -173,37 +183,40 @@ export default function ManualScheduleControls({ devices })
                     }))
                 );
 
-                if (!cancelled) 
-                {
-                    setScheduleRows( rows.filter(row => row.schedule !== null));
+                if (!cancelled) {
+                    setScheduleRows(
+                        rows.filter(row => row.schedule !== null)
+                    );
                 }
-            } 
-            catch (err) 
-            {
-                if (!cancelled) setError(err.message);
-            } 
-            finally 
-            {
-                if (!cancelled) setLoadingSchedules(false);
+            }
+            catch (err) {
+                if (!cancelled) {
+                    setError(err.message);
+                }
+            }
+            finally {
+                if (!cancelled) {
+                    setLoadingSchedules(false);
+                }
             }
         }
 
         loadSchedules();
 
-        return () => {cancelled = true;};
+        return () => {
+            cancelled = true;
+        };
     }, [devices, scheduleVersion]);
 
 
-    // 7. LÀM MỚI DANH SÁCH LỊCH
-    function refreshSchedules() 
-    {
+    // 9. LÀM MỚI DANH SÁCH SCHEDULE
+    function refreshSchedules() {
         setScheduleVersion(value => value + 1);
     }
 
 
-    // 8. HỦY LỊCH
-    async function handleCancelSchedule(row) 
-    {
+    // 10. HỦY SCHEDULE
+    async function handleCancelSchedule(row) {
         const device = row.device;
 
         const confirmed = window.confirm(
@@ -217,32 +230,30 @@ export default function ManualScheduleControls({ devices })
         setError("");
         setMessage("");
 
-        try 
-        {
+        try {
+            // Hủy qua NLP Server, không xóa DB trực tiếp.
             const result = await cancelDeviceSchedule(device.id);
+
             setMessage(result.message);
             refreshSchedules();
-
-        } 
-        catch (err) 
-        {
-            if (err.state === "unknown") 
-                {
-                setUnknownCancelIds(old => [...new Set([...old, device.id])] );
+        }
+        catch (err) {
+            if (err.state === "unknown") {
+                setUnknownCancelIds(old => [
+                    ...new Set([...old, device.id])
+                ]);
             }
 
             setError(err.message);
-        } 
-        finally 
-        {
+        }
+        finally {
             setCancelBusyId(null);
         }
     }
 
 
-    // 9. HIỂN THỊ UNIX TIMESTAMP
-    function formatScheduleTime(seconds) 
-    {
+    // 11. HIỂN THỊ UNIX TIMESTAMP
+    function formatScheduleTime(seconds) {
         if (seconds == null) return "—";
 
         return new Date(seconds * 1000)
@@ -250,7 +261,7 @@ export default function ManualScheduleControls({ devices })
     }
 
 
-
+    // 12. GIAO DIỆN
     return (
         <div className="mt-6 rounded-lg border border-gray-200 p-4">
 
@@ -258,18 +269,21 @@ export default function ManualScheduleControls({ devices })
                 Tạo lịch điều khiển thủ công
             </h3>
 
+            {/* THÔNG BÁO LỖI */}
             {error && (
                 <p role="alert" className="mb-3 text-sm text-red-600">
                     {error}
                 </p>
             )}
 
+            {/* THÔNG BÁO THÀNH CÔNG */}
             {message && (
                 <p role="status" className="mb-3 text-sm text-green-700">
                     {message}
                 </p>
             )}
 
+            {/* KẾT QUẢ TẠO LỊCH CHƯA XÁC ĐỊNH */}
             {unknown && (
                 <p className="mb-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-800">
                     Kết quả tạo lịch chưa xác định.
@@ -277,6 +291,7 @@ export default function ManualScheduleControls({ devices })
                 </p>
             )}
 
+            {/* FORM TẠO SCHEDULE */}
             {readyDevices.length === 0 ? (
                 <p className="text-sm text-gray-500">
                     Chưa có Device đã liên kết và đồng bộ để tạo lịch.
@@ -288,13 +303,16 @@ export default function ManualScheduleControls({ devices })
                     <div className="grid gap-4 sm:grid-cols-2">
                         <label className="block text-sm">
                             Device
+
                             <select
                                 value={deviceId}
                                 onChange={e => setDeviceId(e.target.value)}
                                 disabled={busy || unknown}
                                 className="mt-1 w-full rounded-lg border p-2"
                             >
-                                <option value="">Chọn Device</option>
+                                <option value="">
+                                    Chọn Device
+                                </option>
 
                                 {readyDevices.map(device => (
                                     <option
@@ -312,6 +330,7 @@ export default function ManualScheduleControls({ devices })
 
                         <label className="block text-sm">
                             Hành động
+
                             <select
                                 value={action}
                                 onChange={e => setAction(e.target.value)}
@@ -336,20 +355,31 @@ export default function ManualScheduleControls({ devices })
                             disabled={busy || unknown}
                             className="w-full rounded-lg border p-2"
                         >
-                            <option value="now">Ngay bây giờ</option>
-                            <option value="delay">Sau một khoảng thời gian</option>
-                            <option value="at">Vào ngày giờ cụ thể</option>
+                            <option value="now">
+                                Ngay bây giờ
+                            </option>
+
+                            <option value="delay">
+                                Sau một khoảng thời gian
+                            </option>
+
+                            <option value="at">
+                                Vào ngày giờ cụ thể
+                            </option>
                         </select>
 
                         {startMode === "delay" && (
                             <label className="mt-3 block text-sm">
                                 Trì hoãn (giây)
+
                                 <input
                                     type="number"
                                     min="1"
                                     step="1"
                                     value={delaySeconds}
-                                    onChange={e => setDelaySeconds(e.target.value)}
+                                    onChange={e =>
+                                        setDelaySeconds(e.target.value)
+                                    }
                                     disabled={busy || unknown}
                                     className="mt-1 w-full rounded-lg border p-2"
                                 />
@@ -359,10 +389,13 @@ export default function ManualScheduleControls({ devices })
                         {startMode === "at" && (
                             <label className="mt-3 block text-sm">
                                 Ngày giờ bắt đầu
+
                                 <input
                                     type="datetime-local"
                                     value={startDate}
-                                    onChange={e => setStartDate(e.target.value)}
+                                    onChange={e =>
+                                        setStartDate(e.target.value)
+                                    }
                                     disabled={busy || unknown}
                                     className="mt-1 w-full rounded-lg border p-2"
                                 />
@@ -385,9 +418,11 @@ export default function ManualScheduleControls({ devices })
                             <option value="none">
                                 Không đặt thời điểm kết thúc
                             </option>
+
                             <option value="duration">
                                 Duy trì trong một khoảng thời gian
                             </option>
+
                             <option value="at">
                                 Kết thúc vào ngày giờ cụ thể
                             </option>
@@ -396,12 +431,15 @@ export default function ManualScheduleControls({ devices })
                         {endMode === "duration" && (
                             <label className="mt-3 block text-sm">
                                 Thời lượng (giây)
+
                                 <input
                                     type="number"
                                     min="1"
                                     step="1"
                                     value={durationSeconds}
-                                    onChange={e => setDurationSeconds(e.target.value)}
+                                    onChange={e =>
+                                        setDurationSeconds(e.target.value)
+                                    }
                                     disabled={busy || unknown}
                                     className="mt-1 w-full rounded-lg border p-2"
                                 />
@@ -411,10 +449,13 @@ export default function ManualScheduleControls({ devices })
                         {endMode === "at" && (
                             <label className="mt-3 block text-sm">
                                 Ngày giờ kết thúc
+
                                 <input
                                     type="datetime-local"
                                     value={endDate}
-                                    onChange={e => setEndDate(e.target.value)}
+                                    onChange={e =>
+                                        setEndDate(e.target.value)
+                                    }
                                     disabled={busy || unknown}
                                     className="mt-1 w-full rounded-lg border p-2"
                                 />
@@ -422,6 +463,7 @@ export default function ManualScheduleControls({ devices })
                         )}
                     </div>
 
+                    {/* NÚT TẠO SCHEDULE */}
                     <button
                         type="submit"
                         disabled={!deviceId || busy || unknown}
@@ -432,7 +474,7 @@ export default function ManualScheduleControls({ devices })
                 </form>
             )}
 
-        
+
             {/* DANH SÁCH SCHEDULE */}
             <div className="mt-8 border-t border-gray-200 pt-5">
 
@@ -443,7 +485,10 @@ export default function ManualScheduleControls({ devices })
 
                     <button
                         type="button"
-                        disabled={loadingSchedules || cancelBusyId !== null}
+                        disabled={
+                            loadingSchedules ||
+                            cancelBusyId !== null
+                        }
                         onClick={refreshSchedules}
                         className="rounded-lg border px-3 py-2 text-sm disabled:opacity-50"
                     >
@@ -466,6 +511,7 @@ export default function ManualScheduleControls({ devices })
                                 key={schedule.id}
                                 className="rounded-lg border border-gray-200 p-4"
                             >
+                                {/* TÊN DEVICE VÀ THỜI HẠN */}
                                 <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
                                     <div>
                                         <p className="font-semibold">
@@ -481,14 +527,19 @@ export default function ManualScheduleControls({ devices })
                                     </div>
 
                                     <span className="rounded-lg bg-gray-100 px-3 py-1 text-xs">
-                                        {schedule.syncStatus}
+                                        {schedule.isExpired
+                                            ? "Đã tới thời hạn cấu hình"
+                                            : "Chưa hết hạn"}
                                     </span>
                                 </div>
 
+                                {/* THÔNG TIN SCHEDULE */}
                                 <div className="grid gap-2 text-sm sm:grid-cols-2">
                                     <p>
                                         <strong>Hành động:</strong>{" "}
-                                        {schedule.action === "on" ? "Bật" : "Tắt"}
+                                        {schedule.action === "on"
+                                            ? "Bật"
+                                            : "Tắt"}
                                     </p>
 
                                     <p>
@@ -507,15 +558,32 @@ export default function ManualScheduleControls({ devices })
 
                                     <p>
                                         <strong>Bắt đầu lúc:</strong>{" "}
-                                        {formatScheduleTime(schedule.scheduledStartAt)}
+                                        {formatScheduleTime(
+                                            schedule.scheduledStartAt
+                                        )}
                                     </p>
 
                                     <p>
                                         <strong>Kết thúc lúc:</strong>{" "}
-                                        {formatScheduleTime(schedule.scheduledEndAt)}
+                                        {formatScheduleTime(
+                                            schedule.scheduledEndAt
+                                        )}
+                                    </p>
+
+                                    <p>
+                                        <strong>Thời điểm hết hạn:</strong>{" "}
+                                        {formatScheduleTime(
+                                            schedule.expiresAt
+                                        )}
                                     </p>
                                 </div>
 
+                                <p className="mt-3 text-xs text-gray-500">
+                                    Thời hạn chỉ được tính theo cấu hình.
+                                    Không xác nhận ESP32 đã thực thi lịch.
+                                </p>
+
+                                {/* KẾT QUẢ HỦY CHƯA XÁC ĐỊNH */}
                                 {unknownCancelIds.includes(device.id) && (
                                     <p className="mt-3 text-sm text-amber-700">
                                         Kết quả hủy chưa xác định.
@@ -523,38 +591,32 @@ export default function ManualScheduleControls({ devices })
                                     </p>
                                 )}
 
+                                {/* HỦY SCHEDULE QUA NLP SERVER */}
                                 <button
                                     type="button"
                                     disabled={
                                         busy ||
                                         unknown ||
                                         cancelBusyId !== null ||
-                                        unknownCancelIds.includes(device.id) ||
-                                        schedule.syncStatus !== "acknowledged"
+                                        unknownCancelIds.includes(device.id)
                                     }
-                                    onClick={() => handleCancelSchedule({
-                                        device,
-                                        schedule,
-                                    })}
+                                    onClick={() =>
+                                        handleCancelSchedule({
+                                            device,
+                                            schedule,
+                                        })
+                                    }
                                     className="mt-4 rounded-lg bg-red-600 px-4 py-2 text-sm text-white disabled:opacity-50"
                                 >
                                     {cancelBusyId === device.id
                                         ? "Đang hủy..."
                                         : "Hủy Schedule"}
                                 </button>
-
-                                {schedule.syncStatus !== "acknowledged" && (
-                                    <p className="mt-2 text-xs text-gray-500">
-                                        Lịch chưa ở trạng thái có thể hủy.
-                                        Cần xác minh trạng thái đồng bộ.
-                                    </p>
-                                )}
                             </div>
                         ))}
                     </div>
                 )}
             </div>
-
         </div>
     );
 }

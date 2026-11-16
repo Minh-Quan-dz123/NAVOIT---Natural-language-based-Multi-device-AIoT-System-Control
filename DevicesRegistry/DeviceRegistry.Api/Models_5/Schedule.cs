@@ -39,29 +39,13 @@ public class Schedule
     // null: không chỉ định thời điểm kết thúc tuyệt đối.
     public long? ScheduledEndAt { get; set; }
 
-    // 4. SYNCHRONIZATION INFORMATION
-    // pending        : Đã lưu, chờ đồng bộ.
-    // acknowledged   : ESP đã xác nhận tiếp nhận lịch.
-    // cancel_pending : Đang chờ xác nhận hủy lịch.
-    // unknown        : Không xác định trạng thái thực tế.
-    // failed         : Có xác nhận thao tác thất bại.
-    public string SyncStatus { get; set; } = "pending";
+   public long ExpiresAt { get; set; }
 
-    // ID của MQTT command được gửi gần nhất.
-    //
-    // null nghĩa là chưa gắn command_id cho thao tác
-    // hiện tại. Chỉ NLP Server / MQTT Handler
-    // được phép cập nhật giá trị này.
-    public string? CommandId { get; set; }
 
     // 5. TIMESTAMPS
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 
-    // Thời điểm nhận được ACK hợp lệ gần nhất.
-    //
-    // Không phải thời điểm lịch bắt đầu hoặc kết thúc.
-    public DateTime? AcknowledgedAt { get; set; }
 
     // 6. NAVIGATION PROPERTY
     public Device Device { get; set; } = null!;

@@ -99,10 +99,23 @@ export default function NaturalCommandControls({ onChanged })
                         {result.schedule?.duration ?? "—"} giây
                     </p>
 
+                    
                     <p>
-                        <strong>Trạng thái đồng bộ:</strong>{" "}
-                        {result.schedule?.syncStatus}
+                        <strong>Thời điểm hết hạn:</strong>{" "}
+                        {result.schedule?.expiresAt != null
+                            ? new Date(
+                                result.schedule.expiresAt * 1000
+                            ).toLocaleString("vi-VN")
+                            : "—"}
                     </p>
+
+                    <p>
+                        <strong>Thời hạn:</strong>{" "}
+                        {result.schedule?.isExpired
+                            ? "Đã hết hạn theo cấu hình"
+                            : "Chưa hết hạn"}
+                    </p>
+
                 </div>
             );
         }

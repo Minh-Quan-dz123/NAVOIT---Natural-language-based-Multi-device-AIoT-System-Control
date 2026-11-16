@@ -1,32 +1,28 @@
 import httpx
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import HTTPException, Request
 
-from src.server.auth import verify_jwt
 from src.server.config import (
     REGISTRY_BASE_URL,
     REGISTRY_TIMEOUT_SECONDS,
 )
-from src.server.registry_client import RegistryClient
+from src.server.clients.registry_client import RegistryClient
 from src.server.schemas import NaturalCommandRequest
 
-from src.server.device_resolver import resolve_device
-from src.server.device_control import (
+from src.server.services.device_resolver import resolve_device
+
+from src.server.services.device_control import (
     ManualControlRequest,
     control_device,
 )
-from src.server.device_schedule import (
+
+from src.server.services.device_schedule import (
     CreateScheduleRequest,
     create_schedule,
     cancel_schedule,
 )
-from src.server.schedule_time_parser import parse_schedule_times
 
-
-router = APIRouter(
-    prefix="/api/commands/natural",
-    tags=["Natural Language Control"],
-)
+from src.server.services.schedule_time_parser import parse_schedule_times
 
 
 def fail(code: int, message: str):
@@ -62,13 +58,8 @@ async def load_catalog(token: str) -> list:
         fail(503, "Không lấy được Device Catalog.")
 
 
-# 2. API THỰC THI CÂU LỆNH
-@router.post("/execute")
-async def execute_natural_command(
-    body: NaturalCommandRequest,
-    request: Request,
-    token: str = Depends(verify_jwt),
-):
+
+async def execute_natural_command( body: NaturalCommandRequest, request: Request, token: str,):
     text = body.text.strip()
 
     if not text:

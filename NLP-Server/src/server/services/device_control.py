@@ -9,10 +9,10 @@ from typing import Literal
 
 import httpx
 from aiomqtt import Client, MqttError
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import HTTPException
 from pydantic import BaseModel
 
-from src.server.auth import verify_jwt
+
 from src.server.config import (
     REGISTRY_BASE_URL,
     REGISTRY_INTERNAL_KEY,
@@ -24,14 +24,9 @@ from src.server.config import (
     MQTT_TLS,
     MQTT_TIMEOUT_SECONDS,
 )
-from src.server.device_binding import lock as operation_lock
-from src.server.mqtt_binding import normalize_mac
+from src.server.services.device_binding import lock as operation_lock
+from src.server.clients.mqtt_binding import normalize_mac
 
-
-router = APIRouter(
-    prefix="/api/devices",
-    tags=["Manual Device Control"],
-)
 
 
 # 1. REQUEST TỪ FRONTEND
@@ -405,12 +400,11 @@ async def save_device_status(
         )
 
 
-# 9. API ĐIỀU KHIỂN THỦ CÔNG
-@router.post("/{device_id}/control")
+
 async def control_device(
     device_id: int,
     body: ManualControlRequest,
-    token: str = Depends(verify_jwt),
+    token: str,
 ):
     if device_id <= 0:
         fail(422, "DeviceId không hợp lệ.")
