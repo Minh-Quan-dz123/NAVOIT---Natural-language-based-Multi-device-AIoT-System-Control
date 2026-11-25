@@ -191,17 +191,14 @@ public class MicrocontrollerService
     }
 
     // 8. ADMIN - CẬP NHẬT MCU
-    public async Task<MicrocontrollerResponseDto?> UpdateAsync(
-        int id,
-        UpdateMicrocontrollerRequestDto request)
+    public async Task<MicrocontrollerResponseDto?> UpdateAsync(int id, UpdateMicrocontrollerRequestDto request)
     {
         if (request.Type == null && request.MacAddress == null)
         {
             throw new ArgumentException("Cần cung cấp Type hoặc MacAddress.");
         }
 
-        var microcontroller = await _context.Microcontrollers
-            .FirstOrDefaultAsync(m => m.Id == id);
+        var microcontroller = await _context.Microcontrollers.FirstOrDefaultAsync(m => m.Id == id);
 
         if (microcontroller == null) return null;
 
@@ -248,7 +245,6 @@ public class MicrocontrollerService
     }
 
     // 9. ADMIN - CẤP / CHUYỂN QUYỀN MCU
-
     public async Task<MicrocontrollerResponseDto?> TransferAsync(int id, int newUserId)
     {
         if (newUserId <= 0)

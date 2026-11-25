@@ -22,10 +22,11 @@ from src.server.config import (
     MQTT_TLS,
     MQTT_TIMEOUT_SECONDS,
 )
-from src.server.services.device_binding import lock as operation_lock
-from src.server.services.device_control import load_device_context
-from src.server.clients.mqtt_binding import normalize_mac
 
+from src.server.clients.mqtt_binding import normalize_mac
+from src.server.services.device_control import (
+    locked_device_context,
+)
 
 
 # 1. REQUEST TẠO LỊCH
@@ -65,19 +66,11 @@ def validate_schedule(body: CreateScheduleRequest):
     if duration is not None and end is not None:
         fail(422, "Không dùng đồng thời Duration và EndAt.")
 
-    # EndAt đơn lẻ dễ bị hiểu nhầm là bật ngay và tắt lúc đó.
-    # Với luồng thủ công, yêu cầu chỉ rõ điểm bắt đầu.
-    if end is not None and delay is None and start is None:
-        fail(422, "Cần chọn thời điểm bắt đầu khi dùng EndAt.")
-
     # Chừa thời gian cho MQTT và Registry.
-    if start is not None and start <= now + 15:
-        fail(422, "StartAt phải cách hiện tại trên 15 giây.")
+    if start is not None and start <= now + 13:
+        fail(422, "StartAt phải cách hiện tại trên 13 giây.")
 
     expected_start = start if start is not None else now + (delay or 0)
-
-    if end is not None and end <= expected_start + 15:
-        fail(422, "EndAt phải sau thời điểm bắt đầu trên 15 giây.")
 
 
 # 3. KIỂM TRA DEVICE ĐÃ CÓ LỊCH CHƯA
@@ -89,9 +82,7 @@ async def check_existing_schedule(device_id: int, token: str):
             timeout=REGISTRY_TIMEOUT_SECONDS,
             follow_redirects=False,
         ) as client:
-            response = await client.get(
-                f"/api/device/{device_id}/schedule"
-            )
+            response = await client.get(f"/api/device/{device_id}/schedule")
 
         if response.status_code == 404:
             return
@@ -116,15 +107,18 @@ async def send_schedule_mqtt(
     mac_address: str,
     gpio: int,
     body: CreateScheduleRequest | None,
+    mcu_type: str = "esp32",
 ):
     if not MQTT_HOST:
         fail(503, "Chưa cấu hình MQTT_HOST.")
 
     mac = normalize_mac(mac_address)
-    prefix = f"iot/esp32/v1/{mac}"
+    mcu_type = str(mcu_type).strip().lower()
+
+    prefix = f"iot/{mcu_type}/v1/{mac}"
 
     request_topic = f"{prefix}/FROM_SV/command"
-    response_topic = f"{prefix}/FROM_ESP32/command"
+    response_topic = f"{prefix}/FROM_{mcu_type.upper()}/command"
 
     command_id = uuid4().hex
 
@@ -296,19 +290,21 @@ async def create_schedule(device_id: int,body: CreateScheduleRequest,token: str,
 
     if not REGISTRY_BASE_URL or not REGISTRY_INTERNAL_KEY:
         fail(503, "Thiếu cấu hình Device Registry.")
+    
+    async with locked_device_context(token, device_id) as (device, mcu):
 
-    validate_schedule(body)
-
-    async with operation_lock:
-        # 6.1. Registry xác minh JWT, quyền sở hữu,
-        # binding và trạng thái đồng bộ.
-        device, mcu = await load_device_context( token, device_id)
+        validate_schedule(body)
 
         # 6.2. Một Device chỉ có một Schedule.
         await check_existing_schedule(device_id, token)
 
-        # 6.3. Gửi lịch xuống ESP32.
-        command_id, ack, command_sent_at = await send_schedule_mqtt(mcu["macAddress"], device["gpio"], body,)
+        # 6.3. Gửi lịch xuống MCU đúng một lần.
+        command_id, ack, command_sent_at = await send_schedule_mqtt(
+            mcu["macAddress"],
+            device["gpio"],
+            body,
+            mcu["type"],
+        )
 
         # 6.4. ESP32 từ chối -> không lưu Schedule.
         if ack.get("status") != "success":
@@ -343,9 +339,7 @@ async def load_schedule(device_id: int, token: str):
             timeout=REGISTRY_TIMEOUT_SECONDS,
             follow_redirects=False,
         ) as client:
-            response = await client.get(
-                f"/api/device/{device_id}/schedule"
-            )
+            response = await client.get(f"/api/device/{device_id}/schedule")
 
     except httpx.RequestError:
         fail(503, "Không kết nối được Device Registry.")
@@ -422,31 +416,25 @@ async def cancel_schedule( device_id: int,token: str,):
     if not REGISTRY_BASE_URL or not REGISTRY_INTERNAL_KEY:
         fail(503, "Thiếu cấu hình Device Registry.")
 
-    async with operation_lock:
-
-        # 9.1. Registry xác minh JWT và Device/MCU thuộc User.
-        device, mcu = await load_device_context(token, device_id)
+    async with locked_device_context(token, device_id) as (device, mcu):
 
         # 9.2. Đọc lịch hiện tại.
         schedule = await load_schedule(device_id, token)
-
         schedule_id = schedule.get("id")
-
         if type(schedule_id) is not int or schedule_id <= 0:
             fail(502, "ScheduleId không hợp lệ.")
 
-        
 
-        # 9.3. Gửi cancel_schedule tới ESP32.
+        # 9.3. Gửi cancel_schedule tới MCU.
         command_id, ack, _ = await send_schedule_mqtt(
             mcu["macAddress"],
             device["gpio"],
             None,
+            mcu["type"],
         )
-# Dấu _ thể hiện thời điểm gửi lệnh không cần sử dụng khi hủy.
-# Giữ nguyên phần xác minh ACK, scheduleId, operation_lock và lời gọi confirm_cancel_schedule().
+        # Dấu _ thể hiện giá trị thứ 3 trả về ko cần sử dụng command_id, ack, command_sent_at 
 
-        # 9.4. ESP32 từ chối -> không sửa Registry.
+        # 9.4. MCU từ chối -> không sửa Registry.
         if ack.get("status") != "success":
             fail(
                 409,

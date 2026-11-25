@@ -1,4 +1,3 @@
-
 using System.Security.Claims;
 
 using DeviceRegistry.Api.DTOs;
@@ -47,12 +46,10 @@ public class MicrocontrollerController : ControllerBase
 
     // 2. USER XEM MCU CỦA MÌNH QUA ID
     // GET /api/microcontroller/{id}
-
     [HttpGet("{id:int}")]
     public async Task<IActionResult> GetById(int id)
     {
         int? userId = GetCurrentUserId();
-
         if (userId == null)
         {
             return Unauthorized(new{message = "JWT không hợp lệ."});
@@ -77,12 +74,9 @@ public class MicrocontrollerController : ControllerBase
     public async Task<IActionResult> GetDevices(int id)
     {
         int? userId = GetCurrentUserId();
-
         if (userId == null)
         {
-            return Unauthorized(new {message = "JWT không hợp lệ."});
-
-                
+            return Unauthorized(new {message = "JWT không hợp lệ."}); 
         }
 
         var result = await _service.GetDevicesAsync(id, userId.Value);
@@ -190,9 +184,7 @@ public class MicrocontrollerController : ControllerBase
     // PATCH /api/microcontroller/{id}/owner
     [HttpPatch("{id:int}/owner")]
     [Authorize(Roles = "Admin")]
-    public async Task<IActionResult> Transfer(
-        int id,
-        [FromBody] TransferMicrocontrollerRequestDto request)
+    public async Task<IActionResult> Transfer(int id,[FromBody] TransferMicrocontrollerRequestDto request)
     {
         try
         {
@@ -227,7 +219,6 @@ public class MicrocontrollerController : ControllerBase
         {
             // Service mới chỉ nhận id.
             bool deleted = await _service.DeleteAsync(id);
-
             if (!deleted)
             {
                 return NotFound(new

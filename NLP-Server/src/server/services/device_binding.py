@@ -1,16 +1,13 @@
-
 # Nhận yêu cầu từ Frontend.
 # Gọi Registry bằng JWT của User để lấy Device và MCU thuộc tài khoản.
 # Kiểm tra điều kiện liên kết/tháo.
 # Gọi mqtt_binding.py.
 # Nếu ESP32 trả success, gọi Internal API bằng REGISTRY_INTERNAL_KEY.
 
-import asyncio
-
 import httpx
 
 from fastapi import Depends, HTTPException
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from fastapi.security import HTTPBearer
 from pydantic import BaseModel, Field
 
 from src.server.config import (
@@ -23,11 +20,10 @@ from src.server.clients.mqtt_binding import (
     normalize_mac,
 )
 
-
-bearer = HTTPBearer(auto_error=False)
-
-# Chặn hai thao tác binding đồng thời trong 1 tiến trình.
-lock = asyncio.Lock()
+from src.server.services.operation_locks import (
+    get_mcu_lock,
+    get_device_lock,
+)
 
 # GPIO OUTPUT hỗ trợ cho ESP32 DevKit
 # Cần đồng bộ danh sách với firmware.
@@ -38,9 +34,11 @@ OUTPUT_GPIOS = {
 
 
 # 1. REQUEST LIÊN KẾT
+# BaseModel: Class có sẵn của Pydantic, giúp tự động kiểm tra kiểu dữ liệu, 
+# kiểm tra điều kiện và chuyển đổi dữ liệu khi phù hợp.
 class BindRequest(BaseModel):
-    microcontrollerId: int = Field(gt=0)
-    gpio: int = Field(ge=0, le=39)
+    microcontrollerId: int = Field(gt=0) # gt=0: Greater Than (lớn hơn 0).
+    gpio: int = Field(ge=0) # ge=0: Greater than or Equal (lớn hơn hoặc bằng 0).
 
 
 # 2. TRẢ LỖI
@@ -53,23 +51,12 @@ def error(code: int, message: str, state: str = "failed"):
         },
     )
 
-
-# 3. LẤY JWT TỪ FRONTEND
-def user_token(
-    credentials: HTTPAuthorizationCredentials | None = Depends(bearer),
-) -> str:
-    if credentials is None:
-        error(401, "Thiếu JWT người dùng.")
-
-    return credentials.credentials
-
-
-# 4. GỌI PUBLIC API CỦA REGISTRY
+# 3. GỌI PUBLIC API CỦA REGISTRY
 async def get_json(client: httpx.AsyncClient, path: str):
     try:
-        response = await client.get(path)
-        response.raise_for_status()
-        return response.json()
+        response = await client.get(path) # gửi request theo API đó và nhận response
+        response.raise_for_status()   # phương thức có sẵn của class httpx.Response. Nó kiểm tra mã HTTP mà Registry trả về
+        return response.json() # đọc nội dung JSON trong response và chuyển thành dữ liệu Python.
 
     except httpx.HTTPStatusError as exc:
         code = exc.response.status_code
@@ -83,12 +70,15 @@ async def get_json(client: httpx.AsyncClient, path: str):
         error(503, "Không đọc được dữ liệu Device Registry.")
 
 
-# 5. LẤY DEVICE VÀ MCU CỦA USER
-async def load_user_data(
-    client: httpx.AsyncClient,
-    device_id: int,
-):
-    # Registry kiểm tra JWT và lọc theo UserId.
+# 3. LẤY DEVICE VÀ MCU CỦA USER
+async def load_user_data(client: httpx.AsyncClient, device_id: int,):
+    
+    # bên registry trả về với /api/device/catalog
+    # return Ok(new
+    # {
+    #     DeviceCount = result.Count,
+    #     Devices = result
+    # });
     catalog = await get_json(client, "/api/device/catalog")
     mcus = await get_json(client, "/api/microcontroller")
 
@@ -96,38 +86,38 @@ async def load_user_data(
         error(502, "Dữ liệu Registry không hợp lệ.")
 
     devices = catalog.get("devices")
-
     if not isinstance(devices, list):
         error(502, "Device Catalog không hợp lệ.")
 
-    device = next(
-        (d for d in devices if d.get("deviceId") == device_id),
-        None,
-    )
+    # lấy ra device trong danh sách
+    device = next((d for d in devices if d.get("deviceId") == device_id), None,)
 
     if device is None:
         error(404, "Device không thuộc người dùng hoặc không tồn tại.")
 
     return device, devices, mcus
 
+# 5. Đọc thông tin Device và MCU từ Registry bằng JWT User.
+async def read_binding_data(token: str, device_id: int):
 
+    async with httpx.AsyncClient(
+        base_url=REGISTRY_BASE_URL,
+        headers={
+            "Authorization": f"Bearer {token}",
+        },
+        timeout=10,
+    ) as client:
+
+        return await load_user_data(client, device_id)
+    
 # 6. KIỂM TRA MCU
 def find_mcu(mcus: list, mcu_id: int):
-    mcu = next(
-        (m for m in mcus if m.get("id") == mcu_id),
-        None,
-    )
+    mcu = next((m for m in mcus if m.get("id") == mcu_id), None,)
 
     if mcu is None:
         error(404, "MCU không thuộc người dùng hoặc không tồn tại.")
 
-    if mcu.get("type") != "esp32":
-        error(409, "Chỉ hỗ trợ MCU loại esp32.")
-
-    if type(mcu.get("userId")) is not int or mcu["userId"] <= 0:
-        error(409, "MCU chưa có chủ sở hữu hợp lệ.")
-
-    normalize_mac(mcu.get("macAddress", ""))
+    normalize_mac(mcu.get("macAddress", "")) # dạng "AABBCCDDEEFF"
 
     return mcu
 
@@ -140,16 +130,12 @@ async def save_binding(
     gpio: int | None,
 ):
     try:
-        async with httpx.AsyncClient(
-            base_url=REGISTRY_BASE_URL,
-            timeout=10,
+        async with httpx.AsyncClient(base_url=REGISTRY_BASE_URL, timeout=10,
         ) as client:
 
             response = await client.patch(
                 f"/api/internal/devices/{device_id}/binding",
-                headers={
-                    "X-Internal-Key": REGISTRY_INTERNAL_KEY,
-                },
+                headers={"X-Internal-Key": REGISTRY_INTERNAL_KEY,},
                 json={
                     "userId": user_id,
                     "microcontrollerId": mcu_id,
@@ -170,7 +156,8 @@ async def save_binding(
         )
 
 
-# 8. LUỒNG NGHIỆP VỤ LIÊN KẾT / THÁO
+
+# 8. LUỒNG NGHIỆP VỤ LIÊN KẾT/THÁO device <=>GPIO
 async def binding_operation(
     device_id: int,
     token: str,
@@ -178,112 +165,110 @@ async def binding_operation(
     mcu_id: int | None = None,
     gpio: int | None = None,
 ):
+    # 8.1. kiểm tra các biến nội trước
     if not REGISTRY_INTERNAL_KEY:
         error(503, "NLP Server thiếu REGISTRY_INTERNAL_KEY.")
 
     if not REGISTRY_BASE_URL:
         error(503, "Thiếu REGISTRY_BASE_URL.")
 
-    async with lock:
+    if command not in ("CREATE_DEVICE_REQUEST", "DELETE_DEVICE_REQUEST",):
+        error(400, "Command không hợp lệ.")
 
-        # 8.1. Đọc dữ liệu theo quyền User
-        async with httpx.AsyncClient(
-            base_url=REGISTRY_BASE_URL,
-            headers={
-                "Authorization": f"Bearer {token}",
-            },
-            timeout=10,
-        ) as client:
+    # Chờ lấy được khóa của Device tương ứng, sau đó mới thực hiện các câu lệnh 
+    # bên trong khối async with. Khi thực hiện xong, tự động giải phóng khóa.
+    async with get_device_lock(device_id):
 
-            device, devices, mcus = await load_user_data(
-                client,
-                device_id,
-            )
+        # 8.2. Đọc trước để xác định MCU cần khóa. 
+        device, devices, mcus = await read_binding_data(token, device_id)
 
-        # 8.2. LIÊN KẾT DEVICE
+        # 8.3. nếu là tạo thiết bị thì phải có mcu_id và gpio, còn lệch khác thì ko sao 
         if command == "CREATE_DEVICE_REQUEST":
+            if mcu_id is None or gpio is None:
+                error(422, "Thiếu MCU hoặc GPIO.")
 
-            mcu = find_mcu(mcus, mcu_id)
+            find_mcu(mcus, mcu_id) # kiểm tra cho chắc
+            target_mcu_id = mcu_id
 
-            if gpio not in OUTPUT_GPIOS:
-                error(422, "GPIO không thuộc danh sách OUTPUT hỗ trợ.")
-
-            # Device phải đang chưa liên kết.
-            if (
-                device.get("microcontrollerId") is not None
-                or device.get("gpio") is not None
-                or device.get("syncStatus") != "unassigned"
-            ):
-                error(409, "Device không ở trạng thái chưa liên kết.")
-
-            # GPIO chưa được sử dụng.
-            if any(
-                d.get("microcontrollerId") == mcu_id
-                and d.get("gpio") == gpio
-                for d in devices
-            ):
-                error(409, "GPIO này đã có Device.")
-
-            # Giới hạn 6 Device / ESP32.
-            count = sum(
-                d.get("microcontrollerId") == mcu_id
-                for d in devices
-            )
-
-            if count >= 6:
-                error(409, "ESP32 đã đủ 6 Device.")
-
-        # 8.3. THÁO LIÊN KẾT DEVICE
+        # nếu là tháo liên kết thì chỉ cần device id là được
         else:
-            mcu_id = device.get("microcontrollerId")
-            gpio = device.get("gpio")
+            target_mcu_id = device.get("microcontrollerId")
 
-            if (
-                mcu_id is None
-                or gpio is None
-                or device.get("syncStatus") != "synced"
-            ):
-                error(
-                    409,
-                    "Device không có binding đã đồng bộ để tháo."
-                )
+            if target_mcu_id is None:
+                error(409, "Device chưa liên kết với MCU.")
 
-            mcu = find_mcu(mcus, mcu_id)
+            find_mcu(mcus, target_mcu_id)
 
-        # 8.4. Chuẩn bị thông tin MQTT
-        device_type = device.get("deviceType")
+        # Chỉ khóa đúng MCU đang thao tác.
+        async with get_mcu_lock(target_mcu_id):
 
-        if not isinstance(device_type, str) or not device_type:
-            error(409, "DeviceType không hợp lệ.")
+            # Đọc lại dữ liệu sau khi lấy được lock.
+            # Tránh sử dụng dữ liệu cũ trong lúc chờ.
+            device, devices, mcus = await read_binding_data(token, device_id)
 
-        device_name = device.get("deviceName") or ""
+            mcu = find_mcu(mcus, target_mcu_id)
 
-        # 8.5. GỬI MQTT VÀ NHẬN ACK
-        ack, command_id = await send_device_command(
-            mcu["macAddress"],
-            command,
-            gpio,
-            device_type,
-            device_name,
-        )
+            # LIÊN KẾT
+            if command == "CREATE_DEVICE_REQUEST":
 
-        # 8.6. ESP32 báo lỗi => không sửa Registry
-        if ack.get("status") != "success":
-            error(
-                409,
-                str(ack.get("message") or "ESP32 từ chối thực hiện."),
+                if ( (mcu["type"].strip().lower() == "esp32") and (gpio not in OUTPUT_GPIOS)):
+                    error(422, "GPIO không được hỗ trợ.")
+
+                if ( device.get("microcontrollerId") is not None
+                    or device.get("gpio") is not None
+                ):
+                    error(409, "Device đã có liên kết.")
+
+                if any( # 	Trả về True nếu có ít nhất một phần tử thỏa mãn
+                    (d.get("microcontrollerId") == target_mcu_id) and (d.get("gpio") == gpio)
+                    for d in devices
+                ):
+                    error(409, "GPIO đã được sử dụng.")
+
+
+            # THÁO LIÊN KẾT
+            else:
+                if device.get("microcontrollerId") != target_mcu_id:
+                    error(409, "Liên kết MCU đã thay đổi.")
+
+                gpio = device.get("gpio")
+                if (gpio is None):
+                    error(409, "Device không có binding để tháo.")
+
+            device_type = device.get("deviceType")
+
+            if not isinstance(device_type, str) or not device_type:
+                error(409, "DeviceType không hợp lệ.")
+
+            device_name = device.get("deviceName") or ""
+
+            # Gửi MQTT và chờ ESP32 phản hồi.
+            ack, command_id = await send_device_command(
+                mcu["macAddress"],
+                command,
+                gpio,
+                device_type,
+                device_name,
+                mcu_type=mcu["type"],
             )
 
-        # 8.7. ESP32 thành công => cập nhật Registry
-        result = await save_binding(
-            device_id,
-            mcu["userId"],
-            mcu_id if command == "CREATE_DEVICE_REQUEST" else None,
-            gpio if command == "CREATE_DEVICE_REQUEST" else None,
-        )
+            if ack.get("status") != "success":
+                error(409, str(ack.get("message") or "ESP32 từ chối thực hiện."),)
 
-        return {
-            "state": "success",
-            "commandId": command_id,
-            "binding": result,
-        }
+            # Chỉ cập nhật Registry sau khi ESP32 thành công.
+            result = await save_binding(
+                device_id,
+                mcu["userId"],
+                target_mcu_id
+                if command == "CREATE_DEVICE_REQUEST"
+                else None,
+                gpio
+                if command == "CREATE_DEVICE_REQUEST"
+                else None,
+            )
+
+            return {
+                "state": "success",
+                "commandId": command_id,
+                "binding": result,
+            }

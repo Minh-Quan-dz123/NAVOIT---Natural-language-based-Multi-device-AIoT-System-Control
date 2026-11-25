@@ -134,7 +134,7 @@ export default function ManualScheduleControls({ devices }) {
             );
 
             setMessage(
-                `ESP32 đã tiếp nhận lịch. ` +
+                `MCU đã tiếp nhận lịch. ` +
                 `Registry lưu Schedule #${result.schedule.id}.`
             );
 
@@ -287,7 +287,7 @@ export default function ManualScheduleControls({ devices }) {
             {unknown && (
                 <p className="mb-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-800">
                     Kết quả tạo lịch chưa xác định.
-                    Cần đối soát Registry và ESP32 trước khi thử lại.
+                    Cần đối soát Registry và MCU trước khi thử lại.
                 </p>
             )}
 
@@ -580,7 +580,7 @@ export default function ManualScheduleControls({ devices }) {
 
                                 <p className="mt-3 text-xs text-gray-500">
                                     Thời hạn chỉ được tính theo cấu hình.
-                                    Không xác nhận ESP32 đã thực thi lịch.
+                                    Không xác nhận MCU đã thực thi lịch.
                                 </p>
 
                                 {/* KẾT QUẢ HỦY CHƯA XÁC ĐỊNH */}

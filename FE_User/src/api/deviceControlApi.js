@@ -28,7 +28,7 @@ export async function controlDevice(deviceId, action) {
     {
         const error = new Error(
             "Mất kết nối NLP Server. " +
-            "Chưa rõ ESP32 đã thực hiện lệnh hay chưa."
+            "Chưa rõ MCU đã thực hiện lệnh hay chưa."
         );
 
         error.state = "unknown";

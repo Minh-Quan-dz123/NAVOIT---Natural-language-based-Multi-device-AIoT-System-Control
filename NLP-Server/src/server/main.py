@@ -25,6 +25,7 @@ from src.server.routes.control import router as control_router
 from src.server.routes.schedule import router as schedule_router
 from src.server.routes.natural import router as natural_router
 from src.server.routes.catalog import router as catalog_router
+from src.server.routes.refresh import router as refresh_router
 
 from src.server.clients.mqtt_time_sync import listen_time_sync
 
@@ -37,9 +38,13 @@ if sys.platform == "win32":
 
 
 # 2. KHỞI TẠO PREDICTOR
+# @asynccontextmanager là một decorator có sẵn trong thư viện contextlib của Python, 
+# giúp biến một hàm async generator thành một asynchronous context manager 
+# (trình quản lý ngữ cảnh bất đồng bộ).
 @asynccontextmanager
 async def lifespan(app: FastAPI):
 
+    # 2.1. khởi tạo 1 instance PhoBERTPredictor
     predictor: Predictor | None = None
 
     if PREDICTOR_MODE == "mock":
@@ -52,21 +57,20 @@ async def lifespan(app: FastAPI):
         )
 
     elif PREDICTOR_MODE != "disabled":
-        raise ValueError(
-            f"PREDICTOR_MODE không hợp lệ: {PREDICTOR_MODE}"
-        )
+        raise ValueError(f"PREDICTOR_MODE không hợp lệ: {PREDICTOR_MODE}")
 
+    # tự tạo thêm thuộc tính (app.state là nơi lưu trữ dữ liệu dùng chung trong một ứng dụng FastAPI.)
     app.state.predictor = predictor
     app.state.predictor_mode = PREDICTOR_MODE
 
-    
     print(f"NLP Server started - Predictor: {PREDICTOR_MODE}")
 
-    # Khởi động MQTT Time Sync Listener
+    # 2.2. Khởi động MQTT Time Sync Listener
     time_sync_task = None
 
     if MQTT_HOST:
         time_sync_task = asyncio.create_task(listen_time_sync())
+        # .create_task: Hàm này tạo một Task và lên lịch thực thi coroutine listen_time_sync() trên event loop hiện tại.
     else:
         print("MQTT time sync disabled: chưa cấu hình MQTT_HOST")
 
@@ -112,6 +116,7 @@ app.include_router(control_router)
 app.include_router(natural_router)
 app.include_router(schedule_router)
 app.include_router(catalog_router)
+app.include_router(refresh_router)
 
 
 # 6. HEALTH CHECK

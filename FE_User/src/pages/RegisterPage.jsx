@@ -59,7 +59,7 @@ export default function RegisterPage()
             // Cập nhật phiên đăng nhập
             login(result);
 
-            navigate("/account", { replace: true });
+            navigate("/", { replace: true });
         } 
             
         catch (err) {

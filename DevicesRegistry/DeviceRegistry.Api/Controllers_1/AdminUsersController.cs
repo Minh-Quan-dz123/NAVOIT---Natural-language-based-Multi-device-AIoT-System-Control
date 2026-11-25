@@ -12,7 +12,7 @@ namespace DeviceRegistry.Api.Controllers;
 [Route("api/admin/users")]
 public class AdminUsersController : ControllerBase
 {
-    private readonly AppDbContext _context;
+    private readonly AppDbContext _context; // sài trực tiếp luôn
 
     public AdminUsersController(AppDbContext context)
     {

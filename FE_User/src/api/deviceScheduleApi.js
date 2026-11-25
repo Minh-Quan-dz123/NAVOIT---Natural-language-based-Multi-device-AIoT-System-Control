@@ -105,7 +105,7 @@ export async function cancelDeviceSchedule(deviceId)
     {
         const error = new Error(
             "Mất kết nối NLP Server. " +
-            "Chưa rõ ESP32 đã tiếp nhận lệnh hủy hay chưa."
+            "Chưa rõ MCU đã tiếp nhận lệnh hủy hay chưa."
         );
         error.state = "unknown";
         throw error;

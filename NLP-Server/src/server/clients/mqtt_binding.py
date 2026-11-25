@@ -40,20 +40,26 @@ async def send_device_command(
     gpio: int,
     device_type: str,
     device_name: str,
+    mcu_type: str = "esp32",
 ):
     if not MQTT_HOST:
         raise HTTPException(503, "Chưa cấu hình MQTT_HOST.")
 
     mac = normalize_mac(mac_address)
+    mcu_type = str(mcu_type or "").strip().lower()
 
-    # Topic giống firmware ESP32
-    base = f"iot/esp32/v1/{mac}"
+    if not mcu_type or any(c in mcu_type for c in "/+#"):
+        raise HTTPException(409, "Loại MCU không hợp lệ.")
+
+    base = f"iot/{mcu_type}/v1/{mac}"
 
     request_topic = f"{base}/FROM_SV/command"
-    response_topic = f"{base}/FROM_ESP32/command"
+    response_topic = f"{base}/FROM_{mcu_type.upper()}/command"
 
-    command_id = uuid4().hex
+    command_id = uuid4().hex    # có nhiệm vụ tạo một ID ngẫu nhiên để định danh
+                                # riêng cho mỗi lệnh MQTT gửi xuống MCU
 
+    # lấy thời gian theo giây
     send_time = datetime.now(timezone.utc).isoformat(timespec="seconds")
 
     # Payload gửi tới ESP32
@@ -67,12 +73,15 @@ async def send_device_command(
         "send_time": send_time,
     }
 
+    # Tên lệnh phản hồi mong đợi.
     expected_response = command.replace("_REQUEST", "_RESPONSE")
 
-    attempted = False
+    # Biến đánh dấu Server đã thử gửi MQTT hay chưa.
+    attempted = False 
 
+    # gửi
     try:
-        async with asyncio.timeout(MQTT_TIMEOUT_SECONDS):
+        async with asyncio.timeout(MQTT_TIMEOUT_SECONDS): # Giới hạn thời gian cho quá trình kết nối Broker, subscribe, publish và chờ phản hồi. Nếu vượt quá thời gian quy định thì phát sinh TimeoutError.
 
             async with Client(
                 hostname=MQTT_HOST,
@@ -80,10 +89,10 @@ async def send_device_command(
                 username=MQTT_USERNAME or None,
                 password=MQTT_PASSWORD or None,
                 tls_context=(
-                    ssl.create_default_context()
+                    ssl.create_default_context()  # sl.create_default_context(): Hàm tạo và trả về một instance của class SSLContext, chứa cấu hình bảo mật TLS.
                     if MQTT_TLS else None
                 ),
-                identifier=f"nlp-binding-{uuid4().hex[:12]}",
+                identifier=f"nlp-binding-{uuid4().hex[:12]}", # tạo Client ID riêng cho mỗi MQTT Client kết nối tới Broker.
             ) as mqtt:
 
                 # Subscribe trước khi publish
@@ -146,12 +155,12 @@ async def send_device_command(
 
     except (TimeoutError, MqttError, OSError) as exc:
 
-        # Nếu đã thử publish, không thể chắc ESP32
+        # Nếu đã thử publish, không thể chắc MCU
         # đã thực hiện lệnh hay chưa.
         state = "unknown" if attempted else "failed"
 
         message = (
-            "Không nhận được xác nhận chắc chắn từ ESP32; "
+            "Không nhận được xác nhận chắc chắn từ MCU; "
             "cần đối soát trước khi thử lại."
             if attempted else
             "Không thể kết nối/đăng ký nhận MQTT trước khi gửi lệnh."

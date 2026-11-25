@@ -52,8 +52,7 @@ def matches_tag(device: dict, tag: str) -> bool:
 
 
 # 3. TÌM DEVICE PHÙ HỢP
-def resolve_device(devices: list, tags: list[str]) -> dict:
-
+def resolve_device(devices: list, tags: list[str]) -> list[dict]:
     if not tags:
         raise HTTPException(
             422,
@@ -64,72 +63,26 @@ def resolve_device(devices: list, tags: list[str]) -> dict:
         )
 
     candidates = []
+    seen_ids = set()
 
     for device in devices:
+        # Khớp ít nhất một Tag
+        if any(matches_tag(device, tag) for tag in tags):
+            device_id = device.get("deviceId")
 
-        # Device phải khớp tất cả Tag
-        matched = all(
-            matches_tag(device, tag)
-            for tag in tags
-        )
+            # Tránh thêm trùng Device
+            if device_id not in seen_ids:
+                seen_ids.add(device_id)
+                candidates.append(device)
 
-        if matched:
-            candidates.append(device)
-
-    # 4. KHÔNG TÌM THẤY
-    if len(candidates) == 0:
+    if not candidates:
         raise HTTPException(
             404,
             detail={
                 "state": "failed",
-                "message": "Không tìm thấy Device phù hợp với các Tag.",
+                "message": "Không tìm thấy Device phù hợp.",
                 "deviceTags": tags,
             }
         )
 
-    # 5. NHIỀU DEVICE CÙNG KHỚP
-    if len(candidates) > 1:
-        raise HTTPException(
-            409,
-            detail={
-                "state": "failed",
-                "message": (
-                    "Có nhiều Device phù hợp. "
-                    "Hãy bổ sung Tag để xác định rõ thiết bị."
-                ),
-                "candidates": [
-                    {
-                        "deviceId": device["deviceId"],
-                        "deviceName": device.get("deviceName"),
-                        "deviceType": device.get("deviceType"),
-                    }
-                    for device in candidates
-                ],
-            }
-        )
-
-    # 6. CHỈ CÓ MỘT DEVICE
-    device = candidates[0]
-
-    if (
-        device.get("microcontrollerId") is None
-        or device.get("gpio") is None
-    ):
-        raise HTTPException(
-            409,
-            detail={
-                "state": "failed",
-                "message": "Device chưa được liên kết MCU/GPIO."
-            }
-        )
-
-    if device.get("syncStatus") != "synced":
-        raise HTTPException(
-            409,
-            detail={
-                "state": "failed",
-                "message": "Device chưa được đồng bộ với ESP32."
-            }
-        )
-
-    return device
+    return candidates

@@ -14,9 +14,22 @@ import {
     OUTPUT_GPIOS,
 } from "../api/deviceBindingApi";
 
+import {
+    refreshAllDeviceStatuses,
+    formatRefreshResult,
+} from "../api/deviceRefreshApi";
+
+import {
+    reconcileAllDevices,
+    formatReconcileResult,
+} from "../api/deviceReconcileApi";
+
+
 import ManualDeviceControls from "../components/ManualDeviceControls";
 import NaturalCommandControls from "../components/NaturalCommandControls";
 import ManualScheduleControls from "../components/ManualScheduleControls";
+
+import { syncSchedules } from "../api/scheduleSyncApi";
 
 export default function MicrocontrollersPage()
 {
@@ -42,32 +55,79 @@ export default function MicrocontrollersPage()
     // Nếu timeout hoặc chưa xác định kết quả, không tự retry.
     const [unknownMcuId, setUnknownMcuId] = useState(null);
 
+    const [refreshing, setRefreshing] = useState(false);
+    const [refreshMessage, setRefreshMessage] = useState("");
+    const [refreshError, setRefreshError] = useState("");
+
+    // Trạng thái đồng bộ cấu hình Device/GPIO
+    const [reconciling, setReconciling] = useState(false);
+    const [reconcileResult, setReconcileResult] = useState(null);
+    const [reconcileError, setReconcileError] = useState("");
+
+    const [scheduleSyncBusy, setScheduleSyncBusy] = useState(false);
+    const [scheduleSyncResult, setScheduleSyncResult] = useState(null);
+    const [scheduleSyncError, setScheduleSyncError] = useState("");
 
     // 4. TẢI DANH SÁCH MCU CỦA USER
-    useEffect(() => 
-    {
+    useEffect(() => {
         let cancelled = false;
 
-        async function loadMicrocontrollers() 
-        {
-            try 
-            {
+        async function loadMicrocontrollers()
+         {
+            // 1. Đọc danh sách MCU hiện có.
+            try {
                 const data = await getMyMicrocontrollers();
-                if (!cancelled) setMicrocontrollers(data);
-            } 
+
+                if (!cancelled) {setMicrocontrollers(data);}
+            }
             catch (err) 
             {
                 if (!cancelled) setError(err.message);
-            } 
+            }
             finally 
             {
                 if (!cancelled) setLoading(false);
             }
+
+            if (cancelled) return;
+
+            // 2. Tự động đồng bộ trạng thái khi vào trang.
+            setRefreshing(true);
+
+            try 
+            {
+                const result = await refreshAllDeviceStatuses();
+                if (cancelled) return;
+
+                const message = formatRefreshResult(result);
+                if (result.state === "success" || result.state === "empty") {
+                    setRefreshMessage(message);
+                }
+                else 
+                {
+                    setRefreshError(message);
+                }
+
+                // 3. Đọc lại thông tin sau đồng bộ.
+                const updated = await getMyMicrocontrollers();
+
+                if (!cancelled)setMicrocontrollers(updated);
+            }
+            catch (err) 
+            {
+                if (!cancelled) setRefreshError(err.message);
+            }
+            finally 
+            {
+                if (!cancelled) setRefreshing(false);
+            }
         }
 
         loadMicrocontrollers();
-        return () => { cancelled = true;};
+
+        return () => {cancelled = true;};
     }, []);
+
 
 
     // 5. TẢI DEVICE KHI CHỌN MCU
@@ -131,6 +191,163 @@ export default function MicrocontrollersPage()
     }
 
 
+    // 6.5. hàm refresh thủ công
+    async function handleRefreshStatuses() 
+    {
+        if (refreshing || bindingBusy || reconciling || scheduleSyncBusy || loading) return;
+
+        setRefreshing(true);
+        setRefreshMessage("");
+        setRefreshError("");
+
+        try {
+            // 1. Yêu cầu NLP đồng bộ tất cả MCU.
+            const result = await refreshAllDeviceStatuses();
+
+            const message = formatRefreshResult(result);
+
+            if (result.state === "success" || result.state === "empty") {
+                setRefreshMessage(message);
+            }
+            else {
+                setRefreshError(message);
+            }
+
+            // 2. Đọc lại danh sách MCU từ Registry.
+            const mcus = await getMyMicrocontrollers();
+            setMicrocontrollers(mcus);
+
+            // 3. Nếu đang xem một MCU, đọc lại Device của nó.
+            if (selectedId !== null) {
+                const updatedDevices =await getMyMicrocontrollerDevices(selectedId);
+
+                setDevices(updatedDevices);
+            }
+
+            // 4. Nếu đã đối soát được MCU từng có kết quả
+            // không xác định thì bỏ trạng thái chặn thao tác.
+            if (unknownMcuId !== null) {
+                const checked = result.results.find(
+                    (item) => item.mcuId === unknownMcuId
+                );
+
+                if (
+                    checked?.state === "success" &&
+                    checked.mismatchedDeviceIds.length === 0 &&
+                    checked.unknownGpios.length === 0
+                ) {
+                    setUnknownMcuId(null);
+                }
+            }
+        }
+        catch (err) {
+            setRefreshError(err.message);
+        }
+        finally {
+            setRefreshing(false);
+        }
+    }
+
+
+    // 6.6.
+    async function handleReconcileDevices() 
+    {
+        if (reconciling || refreshing || bindingBusy || scheduleSyncBusy || loading) {return;}
+
+        const confirmed = window.confirm(
+            "Đồng bộ cấu hình sẽ lấy Registry làm dữ liệu chuẩn.\n\n" +
+            "Hệ thống có thể xóa DeviceTask thừa, sửa DeviceTask sai " +
+            "và tạo lại những DeviceTask bị thiếu trên MCU.\n\n" +
+            "Thiết bị được tạo lại sẽ khởi đầu ở trạng thái OFF. " +
+            "Device có Schedule chưa hết hạn sẽ được bỏ qua.\n\n" +
+            "Bạn có muốn tiếp tục không?"
+        );
+
+        if (!confirmed) return;
+
+        setReconciling(true);
+        setReconcileResult(null);
+        setReconcileError("");
+        setRefreshMessage("");
+        setRefreshError("");
+
+        try {
+            // 1. Yêu cầu NLP đối soát và sửa cấu hình.
+            const result = await reconcileAllDevices();
+
+            setReconcileResult(result);
+
+            // 2. Đọc lại danh sách MCU từ Registry.
+            const mcus = await getMyMicrocontrollers();
+            setMicrocontrollers(mcus);
+
+            // 3. Nếu đang xem một MCU, đọc lại toàn bộ Device.
+            if (selectedId !== null) 
+            {
+                const [updatedDevices, updatedFreeDevices] =
+                    await Promise.all([
+                        getMyMicrocontrollerDevices(selectedId),
+                        getUnassignedDevices(),
+                    ]);
+
+                setDevices(updatedDevices);
+                setUnassignedDevices(updatedFreeDevices);
+            }
+        }
+        catch (err) 
+        {
+            setReconcileError(err.message);
+        }
+        finally 
+        {
+            setReconciling(false);
+        }
+    }
+
+    // 6.7. hàm refresh trạng thái gpio và lịch
+    async function handleScheduleSync(apply) 
+    {
+        if (scheduleSyncBusy || reconciling || refreshing || bindingBusy || loading) {return;}
+
+        if (apply) 
+        {
+            const confirmed = window.confirm(
+                "Hệ thống sẽ khôi phục những Schedule bị thiếu " +
+                "trên MCU nếu có đủ thông tin và thời gian còn hợp lệ.\n\n" +
+                "Schedule đang tồn tại nhưng không khớp sẽ không " +
+                "bị ghi đè. Lịch hết hạn cũng không bị tự động xóa.\n\n" +
+                "Bạn muốn tiếp tục?"
+            );
+
+            if (!confirmed) return;
+        }
+
+        setScheduleSyncBusy(true);
+        setScheduleSyncError("");
+        setScheduleSyncResult(null);
+
+        try {
+            const result = await syncSchedules(apply);
+
+            setScheduleSyncResult(result);
+
+            // Đọc lại Device để component Schedule
+            // bên dưới tải lại dữ liệu mới nhất.
+            if (selectedId !== null) {
+                const updatedDevices = await getMyMicrocontrollerDevices(selectedId);
+
+                setDevices(updatedDevices);
+            }
+        }
+        catch (err) {
+            setScheduleSyncError(err.message);
+        }
+        finally {
+            setScheduleSyncBusy(false);
+        }
+    }
+
+
     // 7. LIÊN KẾT DEVICE VỚI GPIO
     async function handleBind() 
     {
@@ -158,7 +375,7 @@ export default function MicrocontrollersPage()
             if (commandSucceeded) 
             {
                 setError(
-                    "ESP32 đã xác nhận và Registry đã lưu, " +
+                    "MCU đã xác nhận và Registry đã lưu, " +
                     "nhưng không tải lại được dữ liệu: " + err.message
                 );
             } 
@@ -226,11 +443,36 @@ export default function MicrocontrollersPage()
 
 
     // 9. DỮ LIỆU CHO FORM
+    // MCU đang được người dùng chọn
+    const selectedMcu = microcontrollers.find((mcu) => mcu.id === selectedId);
+
+    // Loại MCU lấy từ Registry
+    const mcuType = String(selectedMcu?.type || "")
+        .trim()
+        .toLowerCase();
+
+    const isEsp32 = mcuType === "esp32";
+
+    // Danh sách GPIO riêng cho ESP32
     const availableGpios = OUTPUT_GPIOS.filter((pin) => !devices.some((device) => device.gpio === pin));
 
-    const selectedGpio = availableGpios.includes(Number(gpio))
-        ? Number(gpio)
-        : (availableGpios[0] ?? null);
+    // Giá trị GPIO nhập/chọn
+    const gpioNumber = Number(gpio);
+
+    const selectedGpio = isEsp32
+        ? (
+            availableGpios.includes(gpioNumber)
+                ? gpioNumber
+                : (availableGpios[0] ?? null)
+        )
+        : (
+            gpio.trim() !== "" &&
+            Number.isSafeInteger(gpioNumber) &&
+            gpioNumber >= 0 &&
+            !devices.some((device) => device.gpio === gpioNumber)
+                ? gpioNumber
+                : null
+        );
 
     // Chỉ hiển thị các Device thực sự chưa liên kết.
     const freeDevices = unassignedDevices.filter(
@@ -243,14 +485,25 @@ export default function MicrocontrollersPage()
     const bindingBlocked =
         bindingBusy ||
         devicesLoading ||
+        refreshing ||
+        reconciling ||
+        scheduleSyncBusy ||
         unknownMcuId === selectedId;
 
     const canBind =
         !bindingBlocked &&
         selectedId !== null &&
+        selectedMcu !== undefined &&
         deviceId !== "" &&
         selectedGpio !== null &&
-        devices.length < 6;
+        (!isEsp32 || devices.length < 6);
+
+    const syncBusy =
+        refreshing ||
+        reconciling ||
+        scheduleSyncBusy ||
+        bindingBusy ||
+        loading;
 
 
     // 10. GIAO DIỆN
@@ -258,25 +511,124 @@ export default function MicrocontrollersPage()
         <div className="min-h-screen bg-gray-100 px-4 py-8">
             <div className="mx-auto max-w-5xl space-y-6">
 
+
                 {/* HEADER */}
-                <div className="flex flex-wrap items-center justify-between gap-4">
+                <div className="flex flex-wrap items-center justify-between gap-5 rounded-xl border border-[#e1e9e3] bg-white p-6 shadow-sm">
+
                     <div>
-                        <h1 className="text-2xl font-bold text-gray-900">
+                        <p className="mb-2 text-xs font-semibold uppercase tracking-widest text-emerald-600">
+                            DEVICE MANAGEMENT
+                        </p>
+
+                        <h1 className="text-2xl font-semibold text-[#1d3527]">
                             Vi điều khiển của tôi
                         </h1>
 
-                        <p className="mt-1 text-sm text-gray-500">
-                            Quản lý MCU và các Device liên kết GPIO
+                        <p className="mt-2 text-sm text-gray-500">
+                            Quản lý MCU, cấu hình GPIO và Schedule
                         </p>
                     </div>
 
-                    <Link
-                        to="/account"
-                        className="rounded-lg bg-white px-4 py-2 text-sm shadow-sm hover:bg-gray-50"
-                    >
-                        Về tài khoản
-                    </Link>
+                    <div className="flex flex-wrap items-center gap-2">
+
+                        {/* 1. LÀM MỚI TRẠNG THÁI */}
+                        <button
+                            type="button"
+                            onClick={handleRefreshStatuses}
+                            disabled={syncBusy}
+                            className="inline-flex items-center gap-2 rounded-lg border border-[#dce5de] bg-white px-4 py-2.5 text-sm font-medium text-[#344c3d] shadow-sm transition hover:border-emerald-300 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                            <span className="text-lg leading-none">↻</span>
+
+                            {refreshing
+                                ? "Đang làm mới..."
+                                : "Làm mới trạng thái"}
+                        </button>
+
+                        {/* 2. ĐỒNG BỘ CẤU HÌNH */}
+                        <button
+                            type="button"
+                            onClick={handleReconcileDevices}
+                            disabled={syncBusy}
+                            className="inline-flex items-center gap-2 rounded-lg border border-[#dce5de] bg-white px-4 py-2.5 text-sm font-medium text-[#344c3d] shadow-sm transition hover:border-emerald-300 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                            <span className="text-base">⚙</span>
+
+                            {reconciling
+                                ? "Đang đồng bộ..."
+                                : "Đồng bộ cấu hình"}
+                        </button>
+
+                        {/* 3. MENU SCHEDULE */}
+                        <details
+                            className={`relative ${
+                                syncBusy ? "pointer-events-none opacity-50" : ""
+                            }`}
+                        >
+                            <summary className="flex cursor-pointer list-none items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm font-semibold text-emerald-700 shadow-sm transition hover:bg-emerald-100 [&::-webkit-details-marker]:hidden">
+                                <span>▦</span>
+
+                                <span>
+                                    {scheduleSyncBusy
+                                        ? "Đang xử lý..."
+                                        : "Schedule"}
+                                </span>
+
+                                <span className="ml-1 text-xs">▾</span>
+                            </summary>
+
+                            <div className="absolute right-0 z-30 mt-2 w-64 rounded-xl border border-[#e0e8e1] bg-white p-2 shadow-xl">
+
+                                <p className="px-3 py-2 text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+                                    Quản lý Schedule
+                                </p>
+
+                                {/* KIỂM TRA SCHEDULE */}
+                                <button
+                                    type="button"
+                                    disabled={syncBusy}
+                                    onClick={(event) => {
+                                        event.currentTarget.closest("details").open = false;
+                                        handleScheduleSync(false);
+                                    }}
+                                    className="w-full rounded-lg px-3 py-3 text-left transition hover:bg-[#f1f8f3] disabled:opacity-50"
+                                >
+                                    <p className="text-sm font-semibold text-[#294332]">
+                                        Kiểm tra Schedule
+                                    </p>
+
+                                    <p className="mt-1 text-xs text-gray-500">
+                                        Đối chiếu Schedule giữa Registry và MCU
+                                    </p>
+                                </button>
+
+                                <div className="my-1 border-t border-gray-100" />
+
+                                {/* KHÔI PHỤC SCHEDULE */}
+                                <button
+                                    type="button"
+                                    disabled={syncBusy}
+                                    onClick={(event) => {
+                                        event.currentTarget.closest("details").open = false;
+                                        handleScheduleSync(true);
+                                    }}
+                                    className="w-full rounded-lg px-3 py-3 text-left transition hover:bg-[#f1f8f3] disabled:opacity-50"
+                                >
+                                    <p className="text-sm font-semibold text-[#294332]">
+                                        Khôi phục Schedule
+                                    </p>
+
+                                    <p className="mt-1 text-xs text-gray-500">
+                                        Khôi phục lịch hợp lệ còn thiếu trên MCU
+                                    </p>
+                                </button>
+
+                            </div>
+                        </details>
+
+                    </div>
                 </div>
+
 
                 {/* THÔNG BÁO */}
                 {error && (
@@ -298,19 +650,201 @@ export default function MicrocontrollersPage()
                 )}
 
 
+                {refreshing && (
+                    <p
+                        role="status"
+                        className="rounded-lg bg-blue-50 p-4 text-sm text-blue-700"
+                    >
+                        Đang lấy trạng thái thiết bị từ các MCU...
+                    </p>
+                )}
+
+                {refreshMessage && !refreshing && (
+                    <p
+                        role="status"
+                        className="rounded-lg bg-green-50 p-4 text-sm text-green-700"
+                    >
+                        {refreshMessage}
+                    </p>
+                )}
+
+                {refreshError && !refreshing && (
+                    <p
+                        role="alert"
+                        className="rounded-lg bg-amber-50 p-4 text-sm text-amber-800"
+                    >
+                        {refreshError}
+                    </p>
+                )}
+
+
+                {reconciling && (
+                    <p
+                        role="status"
+                        className="rounded-lg bg-blue-50 p-4 text-sm text-blue-700"
+                    >
+                        Đang đối chiếu và sửa cấu hình Device/GPIO trên MCU...
+                    </p>
+                )}
+
+
+                {scheduleSyncBusy && (
+                    <p
+                        role="status"
+                        className="rounded-lg bg-blue-50 p-4 text-sm text-blue-700"
+                    >
+                        Đang kiểm tra Schedule trên các MCU...
+                    </p>
+                )}
+
+                {scheduleSyncError && (
+                    <p
+                        role="alert"
+                        className="rounded-lg bg-red-50 p-4 text-sm text-red-700"
+                    >
+                        {scheduleSyncError}
+                    </p>
+                )}
+
+                {scheduleSyncResult && !scheduleSyncBusy && (
+                    <div className="rounded-xl border bg-white p-4 text-sm">
+                        <h3 className="mb-3 font-semibold">
+                            Kết quả đồng bộ Schedule
+                        </h3>
+
+                        <p className="mb-3 text-gray-600">
+                            Đã đối chiếu {scheduleSyncResult.totalMcus} MCU.
+                        </p>
+
+                        <div className="space-y-4">
+                            {scheduleSyncResult.results.map((mcu) => (
+                                <div
+                                    key={mcu.mcuId}
+                                    className="rounded-lg bg-gray-50 p-3"
+                                >
+                                    <p className="font-medium">
+                                        MCU #{mcu.mcuId} — {mcu.state}
+                                    </p>
+
+                                    <p className="mt-1 text-gray-600">
+                                        {mcu.message}
+                                    </p>
+
+                                    {mcu.items.map((item, index) => (
+                                        <div
+                                            key={`${item.gpio}-${index}`}
+                                            className="mt-2 rounded border bg-white p-2"
+                                        >
+                                            <p className="font-medium">
+                                                {item.deviceId !== null
+                                                    ? `Device #${item.deviceId}`
+                                                    : "Device không xác định"}
+                                                {" — "}
+                                                GPIO {item.gpio}
+                                            </p>
+
+                                            <p className="text-gray-500">
+                                                Trạng thái: {item.state}
+                                            </p>
+
+                                            <p className="mt-1">
+                                                {item.message}
+                                            </p>
+                                        </div>
+                                    ))}
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
+
+
+                {reconcileError && (
+                    <p
+                        role="alert"
+                        className="rounded-lg bg-red-50 p-4 text-sm text-red-700"
+                    >
+                        {reconcileError}
+                    </p>
+                )}
+
+                {reconcileResult && !reconciling && (
+                    <div
+                        role="status"
+                        className="rounded-lg border border-gray-200 bg-white p-4 text-sm"
+                    >
+                        <p className="font-semibold">
+                            {formatReconcileResult(reconcileResult)}
+                        </p>
+
+                        <div className="mt-3 space-y-3">
+                            {reconcileResult.results.map((item) => (
+                                <div
+                                    key={item.mcuId}
+                                    className="rounded-lg bg-gray-50 p-3"
+                                >
+                                    <p className="font-medium">
+                                        MCU #{item.mcuId} — {item.state}
+                                    </p>
+
+                                    <p className="mt-1 text-gray-600">
+                                        {item.message}
+                                    </p>
+
+                                    {item.actions.length > 0 && (
+                                        <p className="mt-1 text-gray-600">
+                                            Đã xác minh:{" "}
+                                            {item.actions.map(
+                                                (action) =>
+                                                    `${action.command} GPIO ${action.gpio}`
+                                            ).join(", ")}
+                                        </p>
+                                    )}
+
+                                    {item.skipped.map((skipped) => (
+                                        <p
+                                            key={skipped.gpio}
+                                            className="mt-1 text-amber-700"
+                                        >
+                                            Bỏ qua GPIO {skipped.gpio}:{" "}
+                                            {skipped.reason}
+                                        </p>
+                                    ))}
+
+                                    {item.refresh?.state === "success" && (
+                                        <p className="mt-1 text-gray-600">
+                                            Device còn không khớp:{" "}
+                                            {item.refresh.mismatchedDeviceIds.length}.
+                                            {" "}GPIO thừa:{" "}
+                                            {item.refresh.unknownGpios.length}.
+                                        </p>
+                                    )}
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
+
+
+
                 {/* ĐIỀU KHIỂN BẰNG NGÔN NGỮ TỰ NHIÊN */}
-                <NaturalCommandControls
-                    onChanged={async () => {
-                        const mcus = await getMyMicrocontrollers();
-                        setMicrocontrollers(mcus);
+                <fieldset
+                    disabled={refreshing || reconciling || scheduleSyncBusy || bindingBusy}
+                    className="min-w-0 border-0 p-0"
+                >
+                    <NaturalCommandControls
+                        onChanged={async () => {
+                            const mcus = await getMyMicrocontrollers();
+                            setMicrocontrollers(mcus);
 
-                        if (selectedId !== null) {
-                            const data = await getMyMicrocontrollerDevices(selectedId);
-                            setDevices(data);
-                        }
-                    }}
-                />
-
+                            if (selectedId !== null) 
+                            {
+                                const data = await getMyMicrocontrollerDevices(selectedId);
+                                setDevices(data);
+                            }
+                        }}
+                    />
+                </fieldset>
 
                 {/* DANH SÁCH MCU */}
                 <section className="rounded-xl bg-white p-6 shadow-sm">
@@ -389,8 +923,15 @@ export default function MicrocontrollersPage()
 
                                     <button
                                         type="button"
-                                        disabled={bindingBusy}
-                                        onClick={() => setSelectedId(item.id)}
+                                        disabled={bindingBusy || refreshing || reconciling || scheduleSyncBusy ||loading}
+                                        onClick={() => {
+                                            setSelectedId(item.id);
+                                            setGpio(
+                                                String(item.type || "").trim().toLowerCase() === "esp32"
+                                                    ? "25"
+                                                    : ""
+                                            );
+                                        }}
                                         className="mt-4 rounded-lg bg-blue-600 px-4 py-2 text-sm text-white disabled:opacity-50"
                                     >
                                         Quản lý Device
@@ -414,7 +955,7 @@ export default function MicrocontrollersPage()
 
                             <button
                                 type="button"
-                                disabled={bindingBusy}
+                                disabled={bindingBusy || refreshing || reconciling || scheduleSyncBusy}
                                 onClick={() => setSelectedId(null)}
                                 className="text-sm text-gray-500 hover:text-gray-800 disabled:opacity-50"
                             >
@@ -429,7 +970,7 @@ export default function MicrocontrollersPage()
                                 className="mb-5 rounded-lg bg-amber-50 p-4 text-sm text-amber-800"
                             >
                                 Một thao tác trên MCU này có kết quả chưa xác định.
-                                Cần đối soát ESP32 với Registry trước khi gửi
+                                Cần đối soát MCU với Registry trước khi gửi
                                 lệnh liên kết hoặc tháo tiếp.
                             </p>
                         )}
@@ -472,28 +1013,38 @@ export default function MicrocontrollersPage()
                                 </div>
 
                                 <div>
-                                    <label className="mb-1 block text-sm">
-                                        GPIO
-                                    </label>
+                                    {isEsp32 ? (
+                                        <select
+                                            value={selectedGpio ?? ""}
+                                            disabled={bindingBlocked || selectedGpio === null}
+                                            onChange={(e) => setGpio(e.target.value)}
+                                            className="w-full rounded-lg border p-2"
+                                        >
+                                            {availableGpios.length === 0 && (
+                                                <option value="">
+                                                    Không còn GPIO khả dụng
+                                                </option>
+                                            )}
 
-                                    <select
-                                        value={selectedGpio ?? ""}
-                                        disabled={bindingBlocked || selectedGpio === null}
-                                        onChange={(e) => setGpio(e.target.value)}
-                                        className="w-full rounded-lg border p-2"
-                                    >
-                                        {availableGpios.length === 0 && (
-                                            <option value="">
-                                                Không còn GPIO khả dụng
-                                            </option>
-                                        )}
+                                            {availableGpios.map((pin) => (
+                                                <option key={pin} value={pin}>
+                                                    GPIO {pin}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    ) : (
+                                        <input
+                                            type="number"
+                                            min="0"
+                                            step="1"
+                                            value={gpio}
+                                            onChange={(e) => setGpio(e.target.value)}
+                                            disabled={bindingBlocked}
+                                            className="w-full rounded-lg border p-2"
+                                            placeholder="Nhập số GPIO của MCU"
+                                        />
+                                    )}
 
-                                        {availableGpios.map((pin) => (
-                                            <option key={pin} value={pin}>
-                                                GPIO {pin}
-                                            </option>
-                                        ))}
-                                    </select>
                                 </div>
 
                                 <div className="flex items-end">
@@ -517,9 +1068,9 @@ export default function MicrocontrollersPage()
                                 </p>
                             )}
 
-                            {devices.length >= 6 && (
+                            {isEsp32 && devices.length >= 6 && (
                                 <p className="mt-3 text-sm text-red-600">
-                                    MCU đã đạt giới hạn 6 Device.
+                                    ESP32 đã đạt giới hạn 6 Device.
                                 </p>
                             )}
                         </div>
@@ -593,15 +1144,21 @@ export default function MicrocontrollersPage()
                             </div>
                         )}
 
-                        <ManualDeviceControls
-                            devices={devices}
-                            onChanged={async () => {
-                                const data = await getMyMicrocontrollerDevices(selectedId);
-                                setDevices(data);
-                            }}
-                        />
+                        <fieldset
+                            disabled={refreshing || reconciling || scheduleSyncBusy || bindingBusy}
+                            className="min-w-0 border-0 p-0"
+                        >
+                            <ManualDeviceControls
+                                devices={devices}
+                                onChanged={async () => {
+                                    const data = await getMyMicrocontrollerDevices(selectedId);
+                                    setDevices(data);
+                                }}
+                            />
 
-                        <ManualScheduleControls devices={devices} />
+                            <ManualScheduleControls devices={devices} />
+                        </fieldset>
+
                     </section>
                 )}
             </div>

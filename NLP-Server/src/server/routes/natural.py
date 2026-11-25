@@ -1,3 +1,6 @@
+# 4. Điều khiển bằng ngôn ngữ tự nhiên
+# STT	Method	API	                            Chức năng
+# 6	    POST	/api/commands/natural/execute	Phân tích và thực hiện câu lệnh
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from src.server.auth import verify_jwt

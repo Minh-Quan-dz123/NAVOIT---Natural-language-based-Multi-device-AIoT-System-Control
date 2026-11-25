@@ -4,17 +4,11 @@ const BASE_URL = "/api/user/me";
 const TOKEN_KEY = "accessToken";
 
 // Quản lý JWT trong sessionStorage
-export function getAccessToken() {
-    return sessionStorage.getItem(TOKEN_KEY);
-}
+export function getAccessToken() {return sessionStorage.getItem(TOKEN_KEY);}
 
-export function saveAccessToken(token) {
-    sessionStorage.setItem(TOKEN_KEY, token);
-}
+export function saveAccessToken(token) {sessionStorage.setItem(TOKEN_KEY, token);}
 
-export function removeAccessToken() {
-    sessionStorage.removeItem(TOKEN_KEY);
-}
+export function removeAccessToken() {sessionStorage.removeItem(TOKEN_KEY);}
 
 // Hàm gửi request dùng chung cho user
 async function request(url, method = "GET", body = null) 
@@ -51,10 +45,12 @@ async function request(url, method = "GET", body = null)
 
     if (responseText) 
     {
-        try {
+        try 
+        {
             data = JSON.parse(responseText);
         } 
-        catch {
+        catch 
+        {
             data = null;
         }
     }
@@ -68,12 +64,11 @@ async function request(url, method = "GET", body = null)
         `Yêu cầu thất bại. HTTP ${response.status}`;
 
         // Xử lý lỗi validation của ASP.NET Core.
-        if (data?.errors) {
+        if (data?.errors) 
+        {
             const validationErrors = Object.values(data.errors).flat();
 
-            if (validationErrors.length > 0) {
-                message = validationErrors.join(" ");
-            }
+            if (validationErrors.length > 0) message = validationErrors.join(" ");
         }
 
         const error = new Error(message);
@@ -93,17 +88,11 @@ export async function getMyProfile()
 // 2. PUT /api/user/me
 export async function updateMyProfile(username, phone) 
 {
-    return await request(BASE_URL, "PUT", {
-        username,
-        phone,
-    });
+    return await request(BASE_URL, "PUT", {username,phone,});
 }
 
 
 // 3. PUT /api/user/me/password
 export async function changeMyPassword(oldPassword, newPassword) {
-    return await request(`${BASE_URL}/password`, "PUT", {
-        oldPassword,
-        newPassword,
-    });
+    return await request(`${BASE_URL}/password`, "PUT", {oldPassword, newPassword,});
 }

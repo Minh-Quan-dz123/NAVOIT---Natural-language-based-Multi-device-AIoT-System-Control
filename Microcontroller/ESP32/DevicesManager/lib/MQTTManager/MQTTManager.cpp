@@ -142,7 +142,20 @@ namespace
             Serial.printf("[INFO] MQTT state: %d\n", _mqttClient.state());
             return false;
         }
-        char buffer[2048];
+
+        
+        static char buffer[2048];
+
+        const size_t jsonSize = measureJson(doc);
+        const size_t packetSize = jsonSize + strlen(topic) + 7;
+
+        if (jsonSize == 0 ||
+            jsonSize >= sizeof(buffer) ||
+            packetSize > _mqttClient.getBufferSize())
+        {
+            Serial.println("[MQTT] Response exceeds buffer size");
+            return false;
+        }
 
         // Chuyển JsonDocument → chuỗi JSON.
         size_t length = serializeJson(doc, buffer, sizeof(buffer));
@@ -284,6 +297,70 @@ namespace
 
         publishJson(_commandPublishTopic, doc);
     }
+
+
+    void sendRefreshScheduleResponse(const char *commandId, const char *sendTime)
+    {
+        JsonDocument doc;
+        JsonObject response = doc.to<JsonObject>();
+
+        // 1. Thông tin chung.
+        fillCommonResponse(
+            response,
+            "REFRESH_SCHEDULE_RESPONSE",
+            commandId,
+            "success",
+            "Schedule snapshot retrieved"
+        );
+
+        response["send_time"] = sendTime;
+
+        // 2. Thời gian ESP32.
+        response["time_valid"] = Timer::isValid();
+        response["current_time"] =static_cast<int64_t>(Timer::getTime());
+
+        // 3. Danh sách Schedule.
+        JsonArray schedules =response["schedules"].to<JsonArray>();
+
+        // 4. Duyệt các DeviceTask.
+        for (uint8_t i = 0; i < DeviceManager::MAX_DEVICES; i++)
+        {
+            DeviceTask *device = DeviceManager::getDeviceByIndex(i);
+
+            if (device == nullptr)
+            {
+                continue;
+            }
+
+            DeviceScheduleSnapshot snapshot;
+            device->getScheduleSnapshot(snapshot);
+
+            JsonObject item = schedules.add<JsonObject>();
+
+            item["gpio"] = device->getGpio();
+            item["active"] = snapshot.active;
+            item["phase"] = snapshot.phase;
+
+            item["start_at"] =static_cast<int64_t>(snapshot.startAt);
+
+            item["end_at"] =static_cast<int64_t>(snapshot.endAt);
+
+            if (snapshot.active)
+            {
+                item["start_status"] = snapshot.startStatus == DeviceStatus::ON? "on" : "off";
+                item["end_status"] = snapshot.endStatus == DeviceStatus::ON ? "on" : "off";
+            }
+            else
+            {
+                item["start_status"] = nullptr;
+                item["end_status"] = nullptr;
+            }
+        }
+
+        // 5. Publish về NLP Server.
+        publishJson(_commandPublishTopic, doc);
+    }
+
 
     // 13.5 Thêm hàm response thời gian
     void sendRefreshTimeResponse(const char *commandId, time_t currentTime, const char *status, const char *message)
@@ -449,6 +526,30 @@ namespace
     }
 
 
+    void processRefreshSchedule(JsonObject root)
+    {
+        // Kiểm tra thông tin bắt buộc.
+        if (!root["command_id"].is<const char *>())
+        {
+            Serial.println("[SCHEDULE] Missing command_id");
+            return;
+        }
+
+        if (!root["send_time"].is<const char *>())
+        {
+            Serial.println("[SCHEDULE] Missing send_time");
+            return;
+        }
+
+        const char *commandId = root["command_id"];
+        const char *sendTime = root["send_time"];
+
+        // Đọc Schedule và trả kết quả.
+        sendRefreshScheduleResponse(commandId, sendTime);
+    }
+
+
+
     // 19. XỬ LÝ DEVICE CONTROL
     // NHIỆM VỤ:
     // Nhận lệnh điều khiển Device từ Server.
@@ -589,7 +690,7 @@ namespace
         Serial.printf("[TOPIC] %s\n", topic);
         Serial.printf("[LENGTH] %u bytes\n", length);
 
-        char buffer[2048];
+        static char buffer[2048];
 
         if (length >= sizeof(buffer))
         {
@@ -664,6 +765,10 @@ namespace
 
             // 20.3.4. DEVICE_CONTROL_REQUEST
             else if (strcmp(command, "DEVICE_CONTROL_REQUEST") == 0) processDeviceControl(root);
+
+            // 20.3.5.
+            else if (strcmp(command, "REFRESH_SCHEDULE_REQUEST") == 0) processRefreshSchedule(root);
+
         }
 
         // 20.4. CONFIGURATION TOPIC

@@ -1,4 +1,3 @@
-
 import asyncio
 import json
 import logging
@@ -17,10 +16,12 @@ from src.server.config import (
     MQTT_TLS,
 )
 
+from src.server.services.device_auto_restore import restore_mcu
+
 
 logger = logging.getLogger("uvicorn.error")
 
-REQUEST_TOPIC = "iot/esp32/v1/+/FROM_ESP32/configuration"
+REQUEST_TOPIC = "iot/+/v1/+/+/configuration"
 
 
 # 1. CHUẨN HÓA MAC
@@ -36,38 +37,146 @@ def normalize_time_mac(value):
     return mac
 
 
-# 2. XỬ LÝ MESSAGE TỪ ESP32
-async def process_time_message(mqtt, message, pending_acks):
+# 2. GỬI KẾT QUẢ KHÔI PHỤC VỀ MCU
+async def send_restore_response(
+    mqtt, mcu_type, mac, command_id, status, message
+):
+    response = {
+        "command": "RESTORE_STATE_RESPONSE",
+        "command_id": command_id,
+        "microcontroller_id": mac,
+        "status": status,
+        "message": message,
+    }
+
+    response_topic = f"iot/{mcu_type}/v1/{mac}/FROM_SV/configuration"
+
+    await mqtt.publish(
+        response_topic,
+        json.dumps(response, ensure_ascii=False),
+        qos=0,
+        retain=False,
+    )
+
+
+# 3. KHÔI PHỤC TRONG TASK RIÊNG
+async def run_restore(
+    mqtt, mcu_type, mac, command_id, restoring, restored
+):
+    try:
+        try:
+            # Gọi service khôi phục Device/GPIO và Schedule.
+            result = await restore_mcu(mac, mcu_type)
+
+            if result.get("status") != "success":
+                raise RuntimeError(
+                    "Service chưa khôi phục thành công."
+                )
+
+            # Ghi nhớ command_id thành công.
+            # Nếu MCU gửi lại cùng request,
+            # không cần khôi phục lần nữa.
+            restored[(mcu_type, mac)] = command_id
+
+            status = "success"
+            message = result.get(
+                "message",
+                "Devices and schedules restored",
+            )
+
+            logger.info(
+                "MQTT restore: MCU %s khôi phục thành công",
+                mac,
+            )
+
+        except asyncio.CancelledError:
+            raise
+
+        except Exception:
+            logger.exception(
+                "MQTT restore: lỗi khôi phục MCU %s",
+                mac,
+            )
+
+            status = "error"
+            message = "Restore failed; will retry"
+
+        # Chỉ gửi success sau khi service hoàn tất.
+        await send_restore_response(
+            mqtt,
+            mcu_type,
+            mac,
+            command_id,
+            status,
+            message,
+        )
+
+    except asyncio.CancelledError:
+        raise
+
+    except (MqttError, OSError):
+        logger.warning(
+            "MQTT restore: không gửi được kết quả tới %s",
+            mac,
+        )
+
+    finally:
+        # Cho phép MCU gửi request mới sau khi kết thúc.
+        restoring.pop((mcu_type, mac), None)
+
+
+# 4. XỬ LÝ MESSAGE TỪ MCU
+async def process_time_message(
+    mqtt, message, pending_acks, restoring, restored
+):
     topic = str(message.topic)
     parts = topic.split("/")
 
-    # Kiểm tra cấu trúc topic
-    if len(parts) != 6 or parts[:3] != ["iot", "esp32", "v1"]:
+    # Kiểm tra cấu trúc topic.
+    if len(parts) != 6 or parts[0] != "iot" or parts[2] != "v1":
         return
 
-    if parts[4:] != ["FROM_ESP32", "configuration"]:
+    mcu_type = parts[1].strip().lower()
+
+    if not re.fullmatch(r"[a-z0-9][a-z0-9_-]*", mcu_type):
+        return
+
+    if parts[4:] != [f"FROM_{mcu_type.upper()}", "configuration"]:
         return
 
     mac = normalize_time_mac(parts[3])
+
     if mac is None:
         return
 
+    mcu_key = (mcu_type, mac)
+
     if len(message.payload) > 2048:
-        logger.warning("MQTT time: payload quá lớn từ %s", mac)
+        logger.warning(
+            "MQTT time: payload quá lớn từ %s",
+            mac,
+        )
         return
 
-    # Parse JSON
+    # Parse JSON.
     try:
         data = json.loads(message.payload)
+
     except (ValueError, UnicodeError, TypeError):
-        logger.warning("MQTT time: JSON không hợp lệ từ %s", mac)
+        logger.warning(
+            "MQTT time: JSON không hợp lệ từ %s",
+            mac,
+        )
         return
 
     if not isinstance(data, dict):
         return
 
-    # Kiểm tra MAC trong payload có khớp topic
-    if normalize_time_mac(data.get("microcontroller_id")) != mac:
+    # Kiểm tra MAC trong payload có khớp topic.
+    if normalize_time_mac(
+        data.get("microcontroller_id")
+    ) != mac:
+
         logger.warning(
             "MQTT time: microcontroller_id không khớp topic %s",
             mac,
@@ -76,12 +185,15 @@ async def process_time_message(mqtt, message, pending_acks):
 
     command_id = data.get("command_id")
 
-    if not isinstance(command_id, str) or not (0 < len(command_id) <= 128):
+    if (
+        not isinstance(command_id, str)
+        or not (0 < len(command_id) <= 128)
+    ):
         return
 
     command = data.get("command")
 
-    # 3. ESP32 YÊU CẦU ĐỒNG BỘ THỜI GIAN
+    # 4.1. MCU YÊU CẦU ĐỒNG BỘ THỜI GIAN
     if command == "REFRESH_TIME_REQUEST":
 
         response = {
@@ -91,7 +203,7 @@ async def process_time_message(mqtt, message, pending_acks):
             "current_time": int(time.time()),
         }
 
-        response_topic = (f"iot/esp32/v1/{mac}/FROM_SV/configuration")
+        response_topic = f"iot/{mcu_type}/v1/{mac}/FROM_SV/configuration"
 
         await mqtt.publish(
             response_topic,
@@ -100,42 +212,116 @@ async def process_time_message(mqtt, message, pending_acks):
             retain=False,
         )
 
-        pending_acks[mac] = command_id
+        pending_acks[mcu_key] = command_id
 
         logger.info(
-            "MQTT time: đã gửi thời gian tới ESP32 %s",
+            "MQTT time: đã gửi thời gian tới MCU %s",
             mac,
         )
 
-    # 4. ESP32 XÁC NHẬN KẾT QUẢ
+    # 4.2. MCU XÁC NHẬN ĐỒNG BỘ THỜI GIAN
     elif command == "REFRESH_TIME_ACK":
 
-        if pending_acks.get(mac) != command_id:
+        if pending_acks.get(mcu_key) != command_id:
             logger.warning(
                 "MQTT time: ACK không khớp yêu cầu từ %s",
                 mac,
             )
             return
 
-        del pending_acks[mac]
+        del pending_acks[mcu_key]
 
         if data.get("status") == "success":
             logger.info(
-                "MQTT time: ESP32 %s xác nhận đồng bộ thành công",
+                "MQTT time: MCU %s xác nhận đồng bộ thành công",
                 mac,
             )
         else:
             logger.warning(
-                "MQTT time: ESP32 %s báo đồng bộ thất bại: %s",
+                "MQTT time: MCU %s báo đồng bộ thất bại: %s",
                 mac,
                 data.get("message"),
             )
+
+    # 4.3. MCU YÊU CẦU KHÔI PHỤC SAU REBOOT
+    elif command == "RESTORE_STATE_REQUEST":
+
+        # Trường hợp 1:
+        # Request này đã khôi phục thành công trước đó.
+        # Chỉ gửi lại response, không chạy lại service.
+        if restored.get(mcu_key) == command_id:
+
+            await send_restore_response(
+                mqtt,
+                mcu_type,
+                mac,
+                command_id,
+                "success",
+                "Devices and schedules restored",
+            )
+            return
+
+        # Trường hợp 2:
+        # MCU đang có một tiến trình khôi phục.
+        running = restoring.get(mcu_key)
+
+        if running is not None:
+
+            old_command_id, task = running
+
+            if not task.done():
+
+                # Cùng request đang chạy.
+                # Không tạo task trùng lặp.
+                if old_command_id == command_id:
+                    return
+
+                # Request khác đang chạy.
+                # Báo error để MCU thử lại.
+                await send_restore_response(
+                    mqtt,
+                    mcu_type,
+                    mac,
+                    command_id,
+                    "error",
+                    "Another restore is running",
+                )
+                return
+
+        # Trường hợp 3:
+        # Tạo task khôi phục mới.
+        # Không chặn MQTT listener.
+        task = asyncio.create_task(
+            run_restore(
+                mqtt,
+                mcu_type,
+                mac,
+                command_id,
+                restoring,
+                restored,
+            )
+        )
+
+        restoring[mcu_key] = (command_id, task)
+
+        logger.info(
+            "MQTT restore: bắt đầu khôi phục MCU %s",
+            mac,
+        )
 
 
 # 5. MQTT LISTENER CHẠY LIÊN TỤC
 async def listen_time_sync():
 
+    # Lưu request khôi phục thành công.
+    # Giữ lại khi MQTT listener reconnect.
+    restored = {}
+
     while True:
+
+        # Các task khôi phục của kết nối MQTT hiện tại.
+        restoring = {}
+
         try:
             async with Client(
                 hostname=MQTT_HOST,
@@ -159,10 +345,13 @@ async def listen_time_sync():
                 pending_acks = {}
 
                 async for message in mqtt.messages:
+
                     await process_time_message(
                         mqtt,
                         message,
                         pending_acks,
+                        restoring,
+                        restored,
                     )
 
         except (MqttError, OSError) as exc:
@@ -176,5 +365,22 @@ async def listen_time_sync():
                 "MQTT time: lỗi ngoài dự kiến"
             )
 
-        # Đợi 5 giây trước khi kết nối lại
+        finally:
+            # Hủy các task dùng kết nối MQTT cũ.
+            # MCU sẽ retry nếu chưa được xác nhận.
+            tasks = [
+                item[1]
+                for item in restoring.values()
+            ]
+
+            for task in tasks:
+                task.cancel()
+
+            if tasks:
+                await asyncio.gather(
+                    *tasks,
+                    return_exceptions=True,
+                )
+
+        # Đợi 5 giây trước khi kết nối lại.
         await asyncio.sleep(5)

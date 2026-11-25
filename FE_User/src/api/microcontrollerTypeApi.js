@@ -1,4 +1,3 @@
-
 import { apiRequest } from "./apiClient";
 
 const BASE_URL = "/api/microcontrollertype";

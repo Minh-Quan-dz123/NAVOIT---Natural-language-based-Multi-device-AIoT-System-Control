@@ -42,7 +42,7 @@ export default function LoginPage()
             login(result);
 
             // 1.5. Chuyển đến trang tài khoản
-            navigate("/account", { replace: true }); 
+            navigate("/", { replace: true }); 
         } 
         catch (err) 
         {

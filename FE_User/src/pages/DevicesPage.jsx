@@ -9,6 +9,11 @@ import {
     deleteDevice,
 } from "../api/deviceApi";
 
+import {
+    refreshAllDeviceStatuses,
+    formatRefreshResult,
+} from "../api/deviceRefreshApi";
+
 import { getDeviceTypes } from "../api/deviceTypeApi";
 
 const emptyForm = {
@@ -17,7 +22,8 @@ const emptyForm = {
     description: "",
 };
 
-export default function DevicesPage() {
+export default function DevicesPage() 
+{
     // 1. DỮ LIỆU
     const [devices, setDevices] = useState([]);
     const [deviceTypes, setDeviceTypes] = useState([]);
@@ -32,26 +38,27 @@ export default function DevicesPage() {
     const [error, setError] = useState("");
     const [success, setSuccess] = useState("");
 
+    const [refreshing, setRefreshing] = useState(false);
+    const [refreshMessage, setRefreshMessage] = useState("");
+    const [refreshError, setRefreshError] = useState("");
+
     // Device đang được sửa, nếu có.
-    const editingDevice = devices.find(
-        (item) => item.id === editingId
-    );
+    const editingDevice = devices.find((item) => item.id === editingId);
 
     // Khi đã gắn MCU, Backend không cho đổi tên
     // hoặc loại Device nếu cần đồng bộ firmware.
     const isBound = editingDevice?.microcontrollerId != null;
 
-    const busy = saving || deletingId !== null;
+    const busy = saving || deletingId !== null || refreshing;
 
     // 2. LẤY DỮ LIỆU BAN ĐẦU
-
     useEffect(() => {
         let cancelled = false;
 
         async function loadData() 
         {
-            try 
-            {
+            // 1. Tải dữ liệu có sẵn từ Registry.
+            try {
                 const [deviceData, typeData] = await Promise.all([
                     getMyDevices(),
                     getDeviceTypes(),
@@ -61,14 +68,51 @@ export default function DevicesPage() {
 
                 setDevices(deviceData);
                 setDeviceTypes(typeData);
-            } 
+            }
             catch (err) 
             {
                 if (!cancelled) setError(err.message);
-            } 
+            }
             finally 
             {
                 if (!cancelled) setLoading(false);
+            }
+
+            if (cancelled) return;
+
+            // 2. Tự động hỏi trạng thái MCU
+            setRefreshing(true);
+
+            try 
+            {
+                const result = await refreshAllDeviceStatuses();
+                if (cancelled) return;
+
+                const message = formatRefreshResult(result);
+
+                if (result.state === "success" || result.state === "empty") {
+                    setRefreshMessage(message);
+                }
+                else 
+                {
+                    setRefreshError(message);
+                }
+            }
+            catch (err) 
+            {
+                if (!cancelled) setRefreshError(err.message);
+            }
+
+            // 3. Đọc lại trạng thái từ Registry.
+            try {
+                const updatedDevices = await getMyDevices();
+                if (!cancelled) setDevices(updatedDevices);
+            }
+            catch (err) {
+                if (!cancelled) setRefreshError(err.message);
+            }
+            finally {
+                if (!cancelled) setRefreshing(false);
             }
         }
 
@@ -77,12 +121,46 @@ export default function DevicesPage() {
         return () => {cancelled = true;};
     }, []);
 
+
     // Đọc lại danh sách sau khi thao tác.
     async function reloadDevices()
     {
         const data = await getMyDevices();
         setDevices(data);
     }
+
+    // 2.5. refresh thủ công
+    async function handleRefreshStatuses() 
+    {
+        if (refreshing || saving || deletingId !== null) return;
+
+        setRefreshing(true);
+        setRefreshMessage("");
+        setRefreshError("");
+
+        try {
+            const result = await refreshAllDeviceStatuses();
+
+            const message = formatRefreshResult(result);
+
+            if (result.state === "success" || result.state === "empty") {
+                setRefreshMessage(message);
+            }
+            else {
+                setRefreshError(message);
+            }
+
+            // Lấy trạng thái mới từ PostgreSQL thông qua Registry.
+            await reloadDevices();
+        }
+        catch (err) {
+            setRefreshError(err.message);
+        }
+        finally {
+            setRefreshing(false);
+        }
+    }
+
 
     // 3. HÀM HỖ TRỢ FORM
     function updateForm(field, value) 
@@ -270,7 +348,7 @@ export default function DevicesPage() {
         <div className="min-h-screen bg-gray-100 px-4 py-8">
             <div className="mx-auto max-w-6xl space-y-6">
 
-                {/* HEADER */}
+                {/* Vùng 1. HEADER */}
                 <div className="flex flex-wrap items-center justify-between gap-4">
                     <div>
                         <h1 className="text-2xl font-bold text-gray-900">
@@ -299,7 +377,7 @@ export default function DevicesPage() {
                     </div>
                 </div>
 
-                {/* THỐNG KÊ */}
+                {/* Vùng 2. THỐNG KÊ */}
                 <div className="grid gap-4 sm:grid-cols-3">
                     <div className="rounded-xl bg-white p-5 shadow-sm">
                         <p className="text-sm text-gray-500">
@@ -348,12 +426,10 @@ export default function DevicesPage() {
                     </div>
                 )}
 
-                {/* FORM THÊM / SỬA */}
+                {/* Vùng 3. FORM THÊM / SỬA */}
                 <section className="rounded-xl bg-white p-6 shadow-sm">
                     <h2 className="mb-4 text-lg font-semibold">
-                        {editingId === null
-                            ? "Thêm thiết bị mới"
-                            : `Chỉnh sửa thiết bị #${editingId}`}
+                        {editingId === null ? "Thêm thiết bị mới" : `Chỉnh sửa thiết bị #${editingId}`}     
                     </h2>
 
                     <form
@@ -497,17 +573,61 @@ export default function DevicesPage() {
                         )}
                     </form>
                 </section>
+                
 
-                {/* DANH SÁCH DEVICE */}
+                {refreshing && (
+                    <p
+                        role="status"
+                        className="rounded-lg bg-blue-50 p-4 text-sm text-blue-700"
+                    >
+                        Đang đồng bộ trạng thái với MCU...
+                    </p>
+                )}
+
+                {refreshMessage && !refreshing && (
+                    <p
+                        role="status"
+                        className="rounded-lg bg-green-50 p-4 text-sm text-green-700"
+                    >
+                        {refreshMessage}
+                    </p>
+                )}
+
+                {refreshError && !refreshing && (
+                    <p
+                        role="alert"
+                        className="rounded-lg bg-amber-50 p-4 text-sm text-amber-800"
+                    >
+                        {refreshError}
+                    </p>
+                )}
+
+
+                {/* Vùng 4. DANH SÁCH DEVICE */}
                 <section className="rounded-xl bg-white p-6 shadow-sm">
                     <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
                         <h2 className="text-lg font-semibold">
                             Danh sách thiết bị
                         </h2>
 
-                        <span className="text-sm text-gray-500">
-                            Tổng số: {total}
-                        </span>
+
+                        <div className="flex flex-wrap items-center gap-3">
+                            <span className="text-sm text-gray-500">
+                                Tổng số: {total}
+                            </span>
+
+                            <button
+                                type="button"
+                                onClick={handleRefreshStatuses}
+                                disabled={refreshing || loading}
+                                className="rounded-lg bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700 disabled:opacity-50"
+                            >
+                                {refreshing
+                                    ? "Đang đồng bộ..."
+                                    : "Làm mới trạng thái"}
+                            </button>
+                        </div>
+
                     </div>
 
                     {loading ? (

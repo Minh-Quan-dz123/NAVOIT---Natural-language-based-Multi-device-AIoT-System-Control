@@ -57,6 +57,19 @@ enum class DeviceStatus
     OFF, ON
 };
 
+// Thông tin Schedule để gửi về Server.
+struct DeviceScheduleSnapshot
+{
+    bool active = false;
+    uint8_t phase = 3;
+
+    time_t startAt = 0;
+    time_t endAt = 0;
+
+    DeviceStatus startStatus = DeviceStatus::OFF;
+    DeviceStatus endStatus = DeviceStatus::OFF;
+};
+
 // 4. DeviceTask
 class DeviceTask
 {
@@ -78,6 +91,10 @@ class DeviceTask
 
         // 4.3. schedule information
         bool hasSchedule() const;
+
+        // 4.4. Lấy bản sao Schedule hiện tại.
+        void getScheduleSnapshot(DeviceScheduleSnapshot &snapshot) const;
+
     
     private:
         // FreeRTOS task entry
@@ -99,6 +116,8 @@ class DeviceTask
         void cancelSchedule();
         void checkSchedule();
 
+        // Bảo vệ dữ liệu Schedule giữa DeviceTask và MQTTManagerTask.
+        mutable portMUX_TYPE _scheduleMux = portMUX_INITIALIZER_UNLOCKED;
 
         // 4.7. device information
         uint8_t _gpio;
@@ -123,4 +142,6 @@ class DeviceTask
         // ss = 1, là đang _Tnow -> _Tstart 
         // ss = 2, là đang _Tnow -> _Tend   
         // ss = 3, là hết rồi,  ko có lịch 
+
+        
 };

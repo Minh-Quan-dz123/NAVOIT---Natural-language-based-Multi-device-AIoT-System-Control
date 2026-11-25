@@ -1,55 +1,145 @@
-import { useState } from "react";
-
+import { useEffect, useRef, useState } from "react";
 import { executeNaturalCommand } from "../api/naturalCommandApi";
 
+function operationLabel(operation) 
+{
+    if (operation === "device_controlled") return "Điều khiển ON/OFF";
+    if (operation === "schedule_created") return "Tạo Schedule";
+    if (operation === "schedule_cancelled") return "Hủy Schedule";
 
+    return operation || "Thực hiện lệnh";
+}
+
+// component nhận 1 hàm callback khi có sự thay đổi
 export default function NaturalCommandControls({ onChanged }) 
 {
+    // 1. nội dung câu lệnh
     const [text, setText] = useState("");
+
+    // 2. đang xử lý lệnh hay ko
     const [busy, setBusy] = useState(false);
 
+    // 3. Đang nhận giọng nói hay không.
+    const [listening, setListening] = useState(false);
+
+    // 4. Kết quả từ Backend.
     const [result, setResult] = useState(null);
-    const [error, setError] = useState("");
+
+    // 5. Danh sách thiết bị gợi ý.
     const [candidates, setCandidates] = useState([]);
+
+    const [error, setError] = useState("");
+
     const [unknownResult, setUnknownResult] = useState(false);
 
+    // đối tượng nhận giọng nói
+    const recognitionRef = useRef(null);
 
-    // 1. GỬI CÂU LỆNH
+    // recognitionRef.current: Đối tượng nhận dạng giọng nói
+    // stop(): Dừng nghe và cố gắng trả về kết quả đã thu được.
+    // abort(): Hủy nhận dạng mà không trả kết quả.
+    useEffect(() => {
+        return () => recognitionRef.current?.abort();
+    }, []);
+
+    // 1. CHUYỂN GIỌNG NÓI THÀNH VĂN BẢN
+    function handleVoice() 
+    {
+        if (busy || unknownResult) return;
+
+        if (listening) 
+        {
+            recognitionRef.current?.stop();
+            return;
+        }
+
+        // Speech-to-text chạy trên trình duyệt.
+        // NLP Server vẫn chỉ nhận văn bản.
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+        if (!SpeechRecognition) 
+        {
+            setError(
+                "Trình duyệt chưa hỗ trợ nhận dạng giọng nói. " +
+                "Hãy nhập văn bản."
+            );
+            return;
+        }
+
+        setError("");
+
+        // SpeechRecognition là API của trình duyệt
+        // tạo 1 đối tượng để thu thập giọng nói và chuyển thành văn bản
+        const recognition = new SpeechRecognition();
+
+        recognition.lang = "vi-VN";
+        recognition.interimResults = false; // Chỉ trả về kết quả cuối cùng, không trả kết quả tạm thời trong lúc nói.
+        recognition.maxAlternatives = 1;    // Chỉ trả về 1 phương án nhận dạng giọng nói tốt nhất.
+
+        // khi nhận dạng thành công, onresult chạy khi có kết quả
+        recognition.onresult = event => {
+            // lấy văn bản được nhận dạng
+            const transcript = event.results[0][0].transcript;
+
+            // Chỉ lấy tối đa 500 ký tự.
+            setText(transcript.slice(0, 500));
+        };
+
+        recognition.onerror = event => {
+            setError(`Không nhận được giọng nói: ${event.error}`);
+        };
+
+        // khi kết thúc nhận dạng, set listening = false
+        recognition.onend = () => {
+            setListening(false);
+        };
+
+        // Lưu đối tượng để có thể gọi stop() hoặc abort() sau này.
+        recognitionRef.current = recognition;
+        setListening(true);
+
+        try 
+        {
+            recognition.start();
+        } 
+        catch (err) 
+        {
+            setListening(false);
+            setError(err.message);
+        }
+    }
+
+    // 2. GỬI LỆNH ĐẾN NLP
     async function handleSubmit(event) 
     {
         event.preventDefault();
-
         const command = text.trim();
 
         if (!command || busy || unknownResult) return;
 
         setBusy(true);
-        setResult(null);
         setError("");
+        setResult(null);
         setCandidates([]);
 
-        try 
-        {
+        try {
             const data = await executeNaturalCommand(command);
-
             setResult(data);
 
-            // Làm mới Device và Schedule đang hiển thị.
-            if (onChanged) 
+            if (onChanged && data.state !== "failed") 
             {
                 try 
-                {
+                {   // chạy hàm mà cha truyền vào khi thành công
                     await onChanged();
                 } 
                 catch 
                 {
                     setError(
-                        "Lệnh đã thực hiện thành công nhưng " +
-                        "chưa làm mới được dữ liệu giao diện."
+                        "Lệnh đã được xử lý nhưng chưa cập nhật " +
+                        "được dữ liệu hiển thị."
                     );
                 }
             }
-
         } 
         catch (err) 
         {
@@ -57,228 +147,267 @@ export default function NaturalCommandControls({ onChanged })
             setCandidates(err.candidates || []);
 
             if (err.state === "unknown") setUnknownResult(true);
-
         } 
-        finally 
-        {
+        finally {
             setBusy(false);
         }
     }
 
+    // 3. CHUẨN HÓA KẾT QUẢ ĐỂ HIỂN THỊ
+    
+    // Backend 
+    // {
+    //     state: "success",
+    //     results: [
+    //         {state: "success", device: {...}, operation: "...", result: {...}},
+    //         {state: "success", device: {...}, operation: "...", result: {...}}
+    //     ]
+    // }
 
-    // 2. HIỂN THỊ KẾT QUẢ THEO CHỨC NĂNG
-    function renderOperationResult() 
-    {
-        if (!result) return null;
-
-        if (result.operation === "schedule_created") 
-        {
-            return (
-                <div className="space-y-2">
-                    <p className="font-semibold text-green-700">
-                        ESP32 đã tiếp nhận lịch điều khiển
-                    </p>
-
-                    <p>
-                        <strong>Schedule ID:</strong>{" "}
-                        {result.schedule?.id}
-                    </p>
-
-                    <p>
-                        <strong>Hành động:</strong>{" "}
-                        {result.schedule?.action}
-                    </p>
-
-                    <p>
-                        <strong>Delay:</strong>{" "}
-                        {result.schedule?.scheduledDelay ?? "—"} giây
-                    </p>
-
-                    <p>
-                        <strong>Duration:</strong>{" "}
-                        {result.schedule?.duration ?? "—"} giây
-                    </p>
-
-                    
-                    <p>
-                        <strong>Thời điểm hết hạn:</strong>{" "}
-                        {result.schedule?.expiresAt != null
-                            ? new Date(
-                                result.schedule.expiresAt * 1000
-                            ).toLocaleString("vi-VN")
-                            : "—"}
-                    </p>
-
-                    <p>
-                        <strong>Thời hạn:</strong>{" "}
-                        {result.schedule?.isExpired
-                            ? "Đã hết hạn theo cấu hình"
-                            : "Chưa hết hạn"}
-                    </p>
-
-                </div>
-            );
-        }
-
-        if (result.operation === "schedule_cancelled") 
-        {
-            return (
-                <div className="space-y-2">
-                    <p className="font-semibold text-green-700">
-                        Đã xác nhận hủy Schedule
-                    </p>
-
-                    <p>
-                        <strong>Schedule ID:</strong>{" "}
-                        {result.scheduleId}
-                    </p>
-
-                    <p>{result.message}</p>
-                </div>
-            );
-        }
-
-        return (
-            <div>
-                <p className="font-semibold text-green-700">
-                    Điều khiển ON/OFF thành công
-                </p>
-
-                <p className="mt-2">
-                    <strong>Trạng thái:</strong>{" "}
-                    {result.currentStatus}
-                </p>
-            </div>
-        );
-    }
-
+    const items = result
+        ? Array.isArray(result.results)
+            ? result.results
+            : [result]
+        : [];
 
     return (
-        <section className="rounded-xl bg-white p-6 shadow-sm">
-
-            <h2 className="mb-2 text-lg font-semibold">
-                Điều khiển bằng ngôn ngữ tự nhiên
-            </h2>
-
-            <p className="mb-4 text-sm text-gray-500">
-                MockPredictor — ON/OFF, tạo và hủy lịch.
-                Ví dụ: bật đèn học sau 10 phút,
-                hủy lịch đèn học.
-            </p>
-
-            {/* FORM NHẬP CÂU LỆNH */}
-            <form
-                onSubmit={handleSubmit}
-                className="flex flex-col gap-3 sm:flex-row"
-            >
-                <input
-                    type="text"
-                    value={text}
-                    maxLength={500}
-                    onChange={e => setText(e.target.value)}
-                    disabled={busy || unknownResult}
-                    placeholder="Nhập câu lệnh tiếng Việt..."
-                    className="min-w-0 flex-1 rounded-lg border px-4 py-3"
-                />
-
-                <button
-                    type="submit"
-                    disabled={!text.trim() || busy || unknownResult}
-                    className="rounded-lg bg-blue-600 px-6 py-3 text-white disabled:opacity-50"
-                >
-                    {busy ? "Đang xử lý..." : "Gửi lệnh"}
-                </button>
-            </form>
-
-            {/* KẾT QUẢ CHƯA XÁC ĐỊNH */}
-            {unknownResult && (
-                <p className="mt-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-800">
-                    Kết quả chưa xác định. Cần đối soát
-                    ESP32 với Registry trước khi gửi lệnh mới.
-                </p>
-            )}
-
-            {/* THÔNG BÁO LỖI */}
-            {error && (
-                <p
-                    role="alert"
-                    className="mt-4 rounded-lg bg-red-50 p-3 text-sm text-red-700"
-                >
-                    {error}
-                </p>
-            )}
-
-            {/* NHIỀU DEVICE TRÙNG TAG */}
-            {candidates.length > 0 && (
-                <div className="mt-4 rounded-lg border p-4">
-                    <p className="mb-2 font-medium">
-                        Có nhiều Device phù hợp:
+        <section className="ui-card overflow-hidden">
+            {/* vùng 1. vùng trên cùng hiển thị title */}
+            <div className="ui-section-header">
+                <div>
+                    <p className="ui-eyebrow">
+                        NATURAL LANGUAGE
                     </p>
 
-                    <ul className="list-inside list-disc text-sm">
-                        {candidates.map(device => (
-                            <li key={device.deviceId}>
-                                {device.deviceName ||
-                                    `Device #${device.deviceId}`}
-                                {" — "}
-                                {device.deviceType}
-                            </li>
-                        ))}
-                    </ul>
+                    <h2 className="ui-section-title mt-1">
+                        Điều khiển bằng ngôn ngữ tự nhiên
+                    </h2>
 
-                    <p className="mt-2 text-sm text-gray-500">
-                        Hãy bổ sung Tag vị trí hoặc tên Device.
+                    <p className="ui-section-description">
+                        Nhập câu lệnh hoặc chuyển giọng nói thành văn bản trước khi gửi.
                     </p>
                 </div>
-            )}
 
-            {/* KẾT QUẢ THÀNH CÔNG */}
-            {result && (
-                <div className="mt-5 rounded-lg border p-4 text-sm">
+                <span className="ui-badge ui-badge-green">
+                    NLP
+                </span>
+            </div>
 
-                    <div className="mb-4 space-y-2">
-                        <p>
-                            <strong>Câu lệnh:</strong>{" "}
-                            {result.text}
-                        </p>
+            {/* 2. vùng lớn - vùng nhập giọng nói */}
+            <div className="p-5 sm:p-6">
 
-                        <p>
-                            <strong>Predictor:</strong>{" "}
-                            {result.predictor}
-                        </p>
+                {/* 2.1. khu vực dành cho input */}
+                <form
+                    onSubmit={handleSubmit}
+                    className="flex flex-col gap-3 lg:flex-row"
+                >
+                    <input
+                        className="ui-input min-w-0 flex-1"
+                        type="text"
+                        maxLength={500}
+                        value={text}
+                        onChange={e => setText(e.target.value)}
+                        disabled={busy || unknownResult}
+                        placeholder="Ví dụ: Bật các đèn sau 10 phút"
+                        aria-label="Câu lệnh điều khiển"
+                    />
 
-                        <p>
-                            <strong>Intent:</strong>{" "}
-                            {result.intent}
-                        </p>
+                    <button
+                        type="button"
+                        className="ui-btn ui-btn-outline"
+                        onClick={handleVoice}
+                        disabled={busy || unknownResult}
+                    >
+                        {listening ? "■ Dừng ghi âm" : "◉ Nhập bằng giọng nói"}
+                    </button>
 
-                        <p>
-                            <strong>Device Tags:</strong>{" "}
-                            {result.deviceTags?.join(", ")}
-                        </p>
+                    <button
+                        type="submit"
+                        className="ui-btn ui-btn-primary"
+                        disabled={!text.trim() || busy || unknownResult}
+                    >
+                        {busy ? "Đang xử lý..." : "Gửi lệnh →"}   
+                    </button>
+                </form>
 
-                        <p>
-                            <strong>Device:</strong>{" "}
-                            {result.device?.deviceName ||
-                                `Device #${result.device?.deviceId}`}
-                        </p>
+                <p className="mt-3 text-xs text-[#819489]">
+                    Có thể ra lệnh cho nhiều Device.
+                    Nhận dạng giọng nói phụ thuộc trình duyệt và quyền microphone.
+                </p>
 
-                        <p>
-                            <strong>MCU:</strong>{" "}
-                            #{result.device?.microcontrollerId}
-                        </p>
-
-                        <p>
-                            <strong>GPIO:</strong>{" "}
-                            {result.device?.gpio}
-                        </p>
+                {/* 3. KẾT QUẢ CHƯA XÁC ĐỊNH */}
+                {unknownResult && (
+                    <div className="ui-alert-warning mt-4">
+                        Kết quả chưa xác định do mất kết nối.
+                        Hãy đối soát MCU với Registry trước khi gửi lại lệnh.
                     </div>
+                )}
 
-                    <div className="border-t pt-4">
-                        {renderOperationResult()}
+                {/* LỖI */}
+                {error && (
+                    <p role="alert" className="ui-alert-error mt-4">
+                        {error}
+                    </p>
+                )}
+
+                {/* HỖ TRỢ RESPONSE CŨ CỦA NLP */}
+                {candidates.length > 0 && (
+                    <div className="ui-alert-warning mt-4">
+                        Device gợi ý:{" "}
+                        {candidates
+                            .map(item =>
+                                item.deviceName ||
+                                `#${item.deviceId}`
+                            )
+                            .join(", ")}
                     </div>
-                </div>
-            )}
+                )}
+
+                {/* 4. KẾT QUẢ LỆNH */}
+                {result && (
+                    <div className="mt-5 rounded-xl border border-[#e1eae2] bg-[#fbfdfb] p-4 sm:p-5">
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                            <div>
+                                <p className="text-xs text-[#7b9182]">
+                                    Câu lệnh
+                                </p>
+
+                                <p className="mt-1 font-semibold text-[#213c2b]">
+                                    {result.text || text}
+                                </p>
+
+                                <p className="mt-1 text-xs text-[#7b9182]">
+                                    {result.intent} · {result.predictor}
+                                    {" · "}
+                                    {result.deviceTags?.join(", ")}
+                                </p>
+                            </div>
+
+                            <span
+                                className={
+                                    "ui-badge " +
+                                    (result.state === "failed"
+                                        ? "ui-badge-red"
+                                        : result.state === "partial"
+                                            ? "ui-badge-neutral"
+                                            : "ui-badge-green")
+                                }
+                            >
+                                {result.state || "success"}
+                            </span>
+                        </div>
+
+                        {/* 5. TỔNG HỢP NHIỀU DEVICE */}
+                        {Array.isArray(result.results) && (
+                            <p className="mt-4 text-sm text-[#5c7565]">
+                                Thành công: {result.successCount ?? 0}
+                                {" / "}
+                                {result.totalDevices ?? items.length}
+                                {" · "}
+                                Thất bại: {result.failedCount ?? 0}
+                            </p>
+                        )}
+
+                        <div className="mt-4 space-y-3">
+                            {items.map((item, index) => {
+                                const device = item.device || result.device || {};
+                                const payload =item.result || item;
+                                const failed = item.state === "failed";
+
+                                return (
+                                    <div
+                                        key={`${device.deviceId ?? index}-${index}`}
+                                        className="rounded-lg border border-[#e1eae2] bg-white p-4"
+                                    >
+                                        <div className="flex flex-wrap items-center justify-between gap-2">
+                                            <div>
+                                                <p className="font-semibold text-[#24412f]">
+                                                    {device.deviceName ||
+                                                        `Device #${device.deviceId ?? "?"}`}
+                                                </p>
+
+                                                <p className="mt-1 text-xs text-[#83958a]">
+                                                    ID #{device.deviceId ?? "—"}
+                                                    {" · "}
+                                                    MCU #{device.microcontrollerId ?? "—"}
+                                                    {" · "}
+                                                    GPIO {device.gpio ?? "—"}
+                                                </p>
+                                            </div>
+
+                                            <span
+                                                className={
+                                                    "ui-badge " +
+                                                    (failed
+                                                        ? "ui-badge-red"
+                                                        : "ui-badge-green")
+                                                }
+                                            >
+                                                {failed
+                                                    ? "Thất bại"
+                                                    : "Thành công"}
+                                            </span>
+                                        </div>
+
+                                        <p className="mt-3 text-sm">
+                                            {operationLabel(
+                                                item.operation ||
+                                                result.operation
+                                            )}
+                                        </p>
+
+                                        {failed ? (
+                                            <p className="mt-1 text-sm text-red-700">
+                                                {typeof item.message === "string"
+                                                    ? item.message
+                                                    : JSON.stringify(
+                                                        item.message ||
+                                                        "Không thực hiện được"
+                                                    )}
+                                            </p>
+                                        ) : (
+                                            <div className="mt-1 space-y-1 text-sm text-[#607668]">
+                                                {payload.commandId && (
+                                                    <p>
+                                                        Command ID: {payload.commandId}
+                                                    </p>
+                                                )}
+
+                                                {payload.currentStatus && (
+                                                    <p>
+                                                        Trạng thái: {payload.currentStatus}
+                                                    </p>
+                                                )}
+
+                                                {payload.schedule && (
+                                                    <p>
+                                                        Schedule ID: #
+                                                        {payload.schedule.id ?? "—"}
+                                                        {" · "}
+                                                        Action:{" "}
+                                                        {payload.schedule.action ?? "—"}
+                                                    </p>
+                                                )}
+
+                                                {payload.scheduleId != null && (
+                                                    <p>
+                                                        Schedule đã hủy: #
+                                                        {payload.scheduleId}
+                                                    </p>
+                                                )}
+
+                                                {payload.message && (
+                                                    <p>{payload.message}</p>
+                                                )}
+                                            </div>
+                                        )}
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+                )}
+            </div>
         </section>
     );
 }

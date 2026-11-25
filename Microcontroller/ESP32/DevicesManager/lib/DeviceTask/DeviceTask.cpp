@@ -85,11 +85,8 @@ bool DeviceTask::stop()
     digitalWrite(_gpio, LOW);
     _status = DeviceStatus::OFF;
 
-    // Clear schedule
-    ss = 3;
-
-    _Tstart = 0;
-    _Tend = 0;
+    // Clear schedule.
+    cancelSchedule();
 
     _running = false;
     return true;
@@ -138,6 +135,9 @@ void DeviceTask::processCommand(const DeviceCommand &command)
         return;
     }
 
+    // Lấy thời gian trước khi vào critical section
+    const time_t now = Timer::getTime();
+
     // tiếp theo, trước tiên tính Xo, Xyc, 1 - Xyc (trạng thái nghịch đảo)
     DeviceStatus Xo = _status;
     DeviceStatus Xyc = (command.action == (DeviceAction::ON))? (DeviceStatus::ON): (DeviceStatus::OFF);
@@ -150,10 +150,14 @@ void DeviceTask::processCommand(const DeviceCommand &command)
         command.scheduled_start_at == 0 &&
         command.scheduled_end_at == 0)
     {
-        _Tnow = Timer::getTime(); // Xo
-        _Tstart = _Tnow;  // Xo
-        _Tend = _Tnow;    // Xyc
+        portENTER_CRITICAL(&_scheduleMux);
+
+        _Tnow = now;
+        _Tstart = _Tnow;
+        _Tend = _Tnow;
         createSchedule(_Tnow, _Tstart, _Tend, Xo, Xo, Xyc);
+
+        portEXIT_CRITICAL(&_scheduleMux);
         return;
     }
 
@@ -165,10 +169,14 @@ void DeviceTask::processCommand(const DeviceCommand &command)
         command.scheduled_end_at == 0)
     {
         // Xo, Xyc, 1-Xyc
-        _Tnow = Timer::getTime();
+        portENTER_CRITICAL(&_scheduleMux);
+
+        _Tnow = now;
         _Tstart = _Tnow;
         _Tend = _Tnow + (command.duration);
         createSchedule(_Tnow, _Tstart, _Tend, Xo, Xyc, Xyc_end);
+
+        portEXIT_CRITICAL(&_scheduleMux);
         return;
     }
 
@@ -181,10 +189,14 @@ void DeviceTask::processCommand(const DeviceCommand &command)
         command.scheduled_end_at == 0)
     {
         // Xo, Xo, Xyc
-        _Tnow = Timer::getTime();
+        portENTER_CRITICAL(&_scheduleMux);
+
+        _Tnow = now;
         _Tstart = _Tnow;
         _Tend = _Tnow + ((command.scheduled_delay));
         createSchedule(_Tnow, _Tstart, _Tend, Xo, Xo, Xyc);
+
+        portEXIT_CRITICAL(&_scheduleMux);
         return;
     }
 
@@ -203,11 +215,14 @@ void DeviceTask::processCommand(const DeviceCommand &command)
         command.scheduled_end_at > 0))
     {
         // Xo,Xo,Xyc
-        _Tnow = Timer::getTime();
+        portENTER_CRITICAL(&_scheduleMux);
+
+        _Tnow = now;
         _Tstart = _Tnow;
-        _Tend = command.scheduled_end_at > 0 ? command.scheduled_end_at: command.scheduled_start_at; 
+        _Tend = command.scheduled_end_at > 0 ? command.scheduled_end_at: command.scheduled_start_at;
         createSchedule(_Tnow, _Tstart, _Tend, Xo, Xo, Xyc);
 
+        portEXIT_CRITICAL(&_scheduleMux);
         return;
     }
 
@@ -227,10 +242,14 @@ void DeviceTask::processCommand(const DeviceCommand &command)
         )
     {
         // Xo, Xyc, 1-Xyc
-        _Tnow = Timer::getTime();
-        _Tstart = command.scheduled_start_at > 0? command.scheduled_start_at: command.scheduled_end_at; 
+        portENTER_CRITICAL(&_scheduleMux);
+
+        _Tnow = now;
+        _Tstart = command.scheduled_start_at > 0? command.scheduled_start_at: command.scheduled_end_at;
         _Tend = _Tstart + command.duration;
         createSchedule(_Tnow, _Tstart, _Tend, Xo, Xyc, Xyc_end);
+
+        portEXIT_CRITICAL(&_scheduleMux);
         return;
     }
 
@@ -244,11 +263,14 @@ void DeviceTask::processCommand(const DeviceCommand &command)
         command.scheduled_end_at == 0)
     {
         // Xo, Xyc, 1-Xyc
-        _Tnow = Timer::getTime();
+        portENTER_CRITICAL(&_scheduleMux);
+
+        _Tnow = now;
         _Tstart = _Tnow + command.scheduled_delay;
         _Tend = _Tstart + command.duration;
         createSchedule(_Tnow, _Tstart, _Tend, Xo, Xyc, Xyc_end);
 
+        portEXIT_CRITICAL(&_scheduleMux);
         return;
     }
 
@@ -268,12 +290,14 @@ void DeviceTask::processCommand(const DeviceCommand &command)
     )
     {
         // tầng trên đảm bảo đầu vào đúng
-        // Xo, Xyc, 1-Xyc
-        _Tnow = Timer::getTime();
-        _Tstart = _Tnow + command.scheduled_delay; 
-        _Tend = command.scheduled_end_at > 0 ? command.scheduled_end_at : command.scheduled_start_at; 
+        portENTER_CRITICAL(&_scheduleMux);
+
+        _Tnow = now;
+        _Tstart = _Tnow + command.scheduled_delay;
+        _Tend = command.scheduled_end_at > 0 ? command.scheduled_end_at : command.scheduled_start_at;
         createSchedule(_Tnow, _Tstart, _Tend, Xo, Xyc, Xyc_end);
 
+        portEXIT_CRITICAL(&_scheduleMux);
         return;
     }
 
@@ -287,13 +311,15 @@ void DeviceTask::processCommand(const DeviceCommand &command)
         command.scheduled_end_at > 0)
     {
         // Xo, Xyc, 1-Xyc 
-        _Tnow = Timer::getTime();
+        portENTER_CRITICAL(&_scheduleMux);
+
+        _Tnow = now;
         // dùng min max để lỡ tầng trên truyền nhầm (ko sai)
-        _Tstart = min(command.scheduled_start_at, command.scheduled_end_at); 
-        _Tend = max(command.scheduled_start_at, command.scheduled_end_at); 
+        _Tstart = min(command.scheduled_start_at, command.scheduled_end_at);
+        _Tend = max(command.scheduled_start_at, command.scheduled_end_at);
         createSchedule(_Tnow, _Tstart, _Tend, Xo, Xyc, Xyc_end);
 
-
+        portEXIT_CRITICAL(&_scheduleMux);
         return;
     }
 }
@@ -339,41 +365,54 @@ void DeviceTask::createSchedule(time_t t_now, time_t t_start, time_t t_end, Devi
     _statusScheduled[0] = x1;
     _statusScheduled[1] = x2;
     _statusScheduled[2] = x3;
+
 }
 
 
 // 11. check schedule
 void DeviceTask::checkSchedule()
 {
-    if((ss != 1) && (ss != 2)) return;
+    const time_t now = Timer::getTime();
+    bool execute = false;
+    DeviceStatus nextStatus = DeviceStatus::OFF;
+    portENTER_CRITICAL(&_scheduleMux);
+
 
     // nếu có rồi thì thực hiện đếm giờ
     // lấy t_now ra rồi kiểm tra có = t_start ko, nếu bằng thì đổi DeviceStatus thành
-    _Tnow = Timer::getTime();
-    if(ss == 1)
+    _Tnow = now;
+
+    if (ss == 1 && now >= _Tstart)
     {
-        if(_Tnow >= _Tstart)
-        {
-            _status = _statusScheduled[1];
-            ss += 1;
-            executeMotorControl(_status);
-        }
-    } 
-    else if(ss == 2)
+        ss = 2;
+        nextStatus = _statusScheduled[1];
+        execute = true;
+    }
+    else if (ss == 2 && now >= _Tend)
     {
-        if(_Tnow >= _Tend)
-        {
-            _status = _statusScheduled[2];
-            ss += 1;
-            executeMotorControl(_status);
-        }
+        ss = 3;
+        nextStatus = _statusScheduled[2];
+        execute = true;
+    }
+    portEXIT_CRITICAL(&_scheduleMux);
+
+    // Không điều khiển GPIO trong critical section.
+    if (execute)
+    {
+        executeMotorControl(nextStatus);
     }
 }
 
 // 12.  Cancel Schedule
 void DeviceTask::cancelSchedule()
 {
+    portENTER_CRITICAL(&_scheduleMux);
+
     ss = 3;
+    _Tstart = 0;
+    _Tend = 0;
+
+    portEXIT_CRITICAL(&_scheduleMux);
 }
 
 
@@ -407,6 +446,37 @@ bool DeviceTask::isRunning() const
 
 bool DeviceTask::hasSchedule() const
 {
-    return ((ss == 1) || (ss == 2));
+    DeviceScheduleSnapshot snapshot;
+    getScheduleSnapshot(snapshot);
+
+    return snapshot.active;
 }
 
+
+
+void DeviceTask::getScheduleSnapshot( DeviceScheduleSnapshot &snapshot) const
+{
+    portENTER_CRITICAL(&_scheduleMux);
+
+    snapshot.phase = ss;
+    snapshot.active = (ss == 1 || ss == 2);
+
+    if (snapshot.active)
+    {
+        snapshot.startAt = _Tstart;
+        snapshot.endAt = _Tend;
+
+        snapshot.startStatus = _statusScheduled[1];
+        snapshot.endStatus = _statusScheduled[2];
+    }
+    else
+    {
+        snapshot.startAt = 0;
+        snapshot.endAt = 0;
+
+        snapshot.startStatus = DeviceStatus::OFF;
+        snapshot.endStatus = DeviceStatus::OFF;
+    }
+
+    portEXIT_CRITICAL(&_scheduleMux);
+}

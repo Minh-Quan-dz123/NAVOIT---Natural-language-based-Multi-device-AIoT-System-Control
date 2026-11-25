@@ -1,25 +1,508 @@
-
 @import "tailwindcss";
 
 :root {
-  font-family: Arial, Helvetica, sans-serif;
-  color: #1f2937;
-  background-color: #f8fafc;
+    font-family: Inter, ui-sans-serif, system-ui, -apple-system,
+        "Segoe UI", sans-serif;
+    color: #20392c;
+    background: #f6f8f6;
+}
+
+* {
+    box-sizing: border-box;
 }
 
 body {
-  margin: 0;
-  min-width: 320px;
+    margin: 0;
+    min-width: 320px;
 }
 
-button, input {
-  font: inherit;
+button, input, textarea, select {
+    font: inherit;
 }
 
 button {
-  cursor: pointer;
+    cursor: pointer;
 }
 
 button:disabled {
-  cursor: not-allowed;
+    cursor: not-allowed;
+}
+
+a {
+    text-decoration: none;
+}
+
+/* 1. KHUNG GIAO DIỆN CHUNG */
+
+.workspace {
+    display: flex;
+    min-height: 100vh;
+    background: #f6f8f6;
+}
+
+.workspace-sidebar {
+    width: 258px;
+    flex-shrink: 0;
+    background: #121d17;
+    color: #f6faf7;
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+    position: sticky;
+    top: 0;
+    height: 100vh;
+}
+
+.brand {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    padding: 26px 22px;
+    border-bottom: 1px solid #293a30;
+    color: white;
+}
+
+.brand-icon {
+    display: grid;
+    place-items: center;
+    width: 42px;
+    height: 42px;
+    border-radius: 11px;
+    background: #36be7b;
+    font-weight: 800;
+    font-size: 25px;
+    color: #103021;
+}
+
+.brand strong,
+.brand small {
+    display: block;
+}
+
+.brand strong {
+    font-size: 16px;
+    letter-spacing: -.3px;
+}
+
+.brand small {
+    color: #8da99b;
+    font-size: 11px;
+    margin-top: 3px;
+}
+
+.workspace-nav {
+    padding: 22px 12px;
+    flex: 1;
+}
+
+.workspace-nav-label {
+    color: #678475;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 1.3px;
+    padding: 0 12px;
+    margin-bottom: 10px;
+}
+
+.workspace-nav-link {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 13px;
+    border-radius: 8px;
+    color: #9fb8ab;
+    font-size: 13px;
+    font-weight: 600;
+    margin-bottom: 4px;
+    transition: .15s;
+}
+
+.workspace-nav-link:hover {
+    background: #1f3127;
+    color: white;
+}
+
+.workspace-nav-link.active {
+    color: #72e7a8;
+    background: #224533;
+}
+
+.workspace-nav-icon {
+    width: 20px;
+    text-align: center;
+    font-size: 18px;
+}
+
+.workspace-account {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 19px;
+    border-top: 1px solid #293a30;
+    color: white;
+}
+
+.workspace-account:hover {
+    background: #1e3025;
+}
+
+.avatar {
+    height: 38px;
+    width: 38px;
+    flex-shrink: 0;
+    display: inline-grid;
+    place-items: center;
+    border-radius: 50%;
+    background: #2c6848;
+    color: #dbffea;
+    font-size: 12px;
+    font-weight: 800;
+}
+
+.avatar-light {
+    background: #e5f7eb;
+    border: 1px solid #c8e8d0;
+    color: #267346;
+}
+
+.workspace-main {
+    flex: 1;
+    min-width: 0;
+}
+
+.workspace-topbar {
+    height: 72px;
+    background: white;
+    border-bottom: 1px solid #e1e9e3;
+    padding: 0 28px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.workspace-content {
+    width: min(100%, 1460px);
+    margin: 0 auto;
+    padding: 32px;
+}
+
+.workspace-menu-button,
+.workspace-overlay {
+    display: none;
+}
+
+/* 2. CÁC THẺ GIAO DIỆN */
+
+.ui-card {
+    background: #fff;
+    border: 1px solid #e0e8e1;
+    border-radius: 14px;
+    box-shadow: 0 2px 12px rgba(16, 43, 24, .025);
+}
+
+.ui-eyebrow {
+    color: #299661;
+    font-size: 11px;
+    letter-spacing: 1.8px;
+    font-weight: 800;
+}
+
+.ui-title {
+    color: #172d20;
+    margin-top: 8px;
+    font-size: clamp(24px, 2.3vw, 32px);
+    font-weight: 750;
+    letter-spacing: -.9px;
+}
+
+.ui-subtitle {
+    margin-top: 8px;
+    color: #809084;
+    font-size: 13px;
+}
+
+.ui-section-title {
+    font-size: 16px;
+    font-weight: 700;
+    color: #21392b;
+}
+
+.ui-section-description {
+    margin-top: 5px;
+    color: #87978b;
+    font-size: 12px;
+}
+
+.ui-section-header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 22px 24px;
+    border-bottom: 1px solid #e8efe9;
+}
+
+/* 3. THỐNG KÊ */
+
+.ui-stat {
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+    padding: 24px;
+}
+
+.ui-stat span {
+    color: #75867b;
+    font-size: 13px;
+}
+
+.ui-stat strong {
+    color: #1d3a28;
+    font-size: 33px;
+    line-height: 1;
+    letter-spacing: -1px;
+}
+
+.ui-stat small {
+    color: #91a092;
+    font-size: 11px;
+}
+
+/* 4. INPUT VÀ BUTTON */
+
+.ui-input {
+    width: 100%;
+    background: #fbfdfb;
+    border: 1px solid #dbe5dd;
+    padding: 11px 13px;
+    border-radius: 8px;
+    outline: none;
+    color: #253a2d;
+    font-size: 13px;
+}
+
+.ui-input:focus {
+    border-color: #40b276;
+    box-shadow: 0 0 0 3px #dcf5e5;
+}
+
+.ui-btn {
+    display: inline-flex;
+    justify-content: center;
+    align-items: center;
+    gap: 7px;
+    padding: 10px 14px;
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 700;
+    white-space: nowrap;
+    transition: .15s;
+}
+
+.ui-btn-primary {
+    background: #31a66a;
+    color: white;
+    border: 1px solid #31a66a;
+}
+
+.ui-btn-primary:hover {
+    background: #278c57;
+}
+
+.ui-btn-outline {
+    background: white;
+    border: 1px solid #dce6de;
+    color: #3e5c48;
+}
+
+.ui-btn-outline:hover {
+    background: #f0f8f2;
+    border-color: #98cca9;
+}
+
+.ui-btn-quiet {
+    color: #258752;
+    padding: 6px;
+}
+
+.ui-btn-quiet:hover {
+    background: #edfaef;
+}
+
+.ui-btn:disabled {
+    opacity: .5;
+}
+
+/* 5. BẢNG DỮ LIỆU */
+
+.ui-table {
+    width: 100%;
+    border-collapse: collapse;
+    text-align: left;
+    font-size: 13px;
+}
+
+.ui-table th {
+    background: #f8faf8;
+    padding: 13px 17px;
+    color: #87978c;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: .75px;
+    font-weight: 800;
+}
+
+.ui-table td {
+    border-top: 1px solid #edf1ee;
+    padding: 16px 17px;
+    color: #3b5141;
+    vertical-align: middle;
+}
+
+.ui-table tr:hover td {
+    background: #f7fbf8;
+}
+
+.ui-table-selected td {
+    background: #eaf8ed !important;
+}
+
+.ui-table-link {
+    color: #1c3b2a;
+    font-weight: 750;
+}
+
+.ui-table-link:hover {
+    color: #2b9a61;
+}
+
+/* 6. STATUS */
+
+.ui-badge {
+    display: inline-flex;
+    padding: 5px 9px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 750;
+}
+
+.ui-badge-green {
+    background: #e3f7e9;
+    color: #217d4c;
+}
+
+.ui-badge-red {
+    background: #ffebea;
+    color: #aa443f;
+}
+
+.ui-badge-neutral {
+    background: #eef2ef;
+    color: #6b7f70;
+}
+
+/* 7. THÔNG BÁO */
+
+.ui-alert-error,
+.ui-alert-info,
+.ui-alert-warning {
+    padding: 13px 15px;
+    border: 1px solid;
+    border-radius: 9px;
+    font-size: 13px;
+}
+
+.ui-alert-error {
+    border-color: #f1cecb;
+    background: #fff1ef;
+    color: #a53d37;
+}
+
+.ui-alert-info {
+    border-color: #c6e7d1;
+    background: #ebf9f0;
+    color: #2a754d;
+}
+
+.ui-alert-warning {
+    border-color: #eedba6;
+    background: #fff9e6;
+    color: #876525;
+}
+
+/* 8. LINK CHI TIẾT */
+
+.ui-back {
+    font-size: 13px;
+    color: #278b55;
+    font-weight: 700;
+}
+
+.ui-back:hover {
+    text-decoration: underline;
+}
+
+.ui-device-link {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 14px;
+    border: 1px solid #e1ebe4;
+    border-radius: 9px;
+    color: #28402f;
+    background: #fcfefc;
+}
+
+.ui-device-link:hover {
+    background: #eff9f1;
+    border-color: #8fcea6;
+}
+
+/* 9. RESPONSIVE */
+
+@media (max-width: 900px) {
+    .workspace-sidebar {
+        position: fixed;
+        left: 0;
+        top: 0;
+        z-index: 40;
+        transform: translateX(-100%);
+        transition: transform .2s;
+    }
+
+    .workspace-sidebar.is-open {
+        transform: translateX(0);
+    }
+
+    .workspace-overlay {
+        display: block;
+        position: fixed;
+        inset: 0;
+        z-index: 30;
+        background: rgba(0, 0, 0, .4);
+    }
+
+    .workspace-menu-button {
+        display: inline-flex;
+    }
+
+    .workspace-content {
+        padding: 20px;
+    }
+
+    .workspace-topbar {
+        padding: 0 20px;
+    }
+}
+
+@media (max-width: 500px) {
+    .workspace-content {
+        padding: 14px;
+    }
+
+    .ui-section-header {
+        padding: 18px;
+    }
 }

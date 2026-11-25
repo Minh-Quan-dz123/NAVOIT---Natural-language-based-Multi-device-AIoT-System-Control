@@ -12,7 +12,7 @@ from src.server.clients.registry_client import RegistryClient
 
 router = APIRouter()
 
-
+# 10	POST	/api/commands/natural/parse	Chỉ phân tích câu lệnh
 @router.get("/api/devices/catalog")
 async def get_device_catalog( token: str = Depends(verify_jwt),):
     if not REGISTRY_BASE_URL:

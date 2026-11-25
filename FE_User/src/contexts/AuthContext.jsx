@@ -33,6 +33,7 @@ export function AuthProvider({ children })
         // nếu có thì check thông tin hiện tại
         let cancelled = false;
 
+        // tạo hàm kiểm tra thông tin của phiên hiện tại
         async function checkSession() 
         {
             try 
@@ -77,12 +78,15 @@ export function AuthProvider({ children })
     // 1.4. Được gọi sau khi authApi đăng nhập/đăng ký thành công.
     function login(authResponse) 
     {
-        const accessToken = typeof authResponse === "string"? authResponse: authResponse?.accessToken;
+        const accessToken = (typeof authResponse === "string")? authResponse: authResponse?.accessToken;
 
         if (!accessToken) { throw new Error("Backend không trả về accessToken.");}
 
         saveAccessToken(accessToken);
 
+        //Người dùng đăng nhập bằng tài khoản khác.
+        //Nếu không setUser(null), giao diện có thể tạm thời sử dụng thông tin của tài khoản 
+        //admin trong khi đang tải thông tin tài khoản mới.
         setUser(null);
         setSessionError("");
         setIsLoading(true);
@@ -120,9 +124,10 @@ export function AuthProvider({ children })
                 setSessionError(error.message || "Không thể tải thông tin tài khoản.");
             }
 
-        throw error;
+            throw error;
         } 
-        finally {
+        finally 
+        {
             setIsLoading(false);
         }
     }
@@ -155,8 +160,9 @@ export function AuthProvider({ children })
 // lấy dữ liệu từ authContext
 export function useAuth() 
 {
+    // kiểm tra xem thành phần gọi useAuth() có phải là children hay ko, nếu có thì trả về các value
     const context = useContext(AuthContext);
-    if (!context) {throw new Error("useAuth phải được sử dụng trong AuthProvider.");}
+    if (!context) {throw new Error("[src/contexts/AuthContext.jsx]: useAuth phải được sử dụng trong AuthProvider.");}
 
     return context;
 }

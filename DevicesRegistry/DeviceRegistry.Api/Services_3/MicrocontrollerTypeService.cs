@@ -137,15 +137,13 @@ public class MicrocontrollerTypeService
 
   
     // 8. Cập nhật loại MCU
-
     public async Task<MicrocontrollerTypeResponseDto?> UpdateAsync(
         int id,
         UpdateMicrocontrollerTypeRequestDto request)
     {
         string newName = NormalizeTypeName(request.TypeName);
 
-        var model = await _context.MicrocontrollerTypes
-            .FirstOrDefaultAsync(t => t.Id == id);
+        var model = await _context.MicrocontrollerTypes.FirstOrDefaultAsync(t => t.Id == id);
 
         if (model == null) return null;
 

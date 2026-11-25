@@ -15,11 +15,9 @@ export async function getUnassignedDevices() {
 // 2. Gửi yêu cầu liên kết/tháo tới NLP Server
 async function sendBindingRequest(deviceId, method, body = null) {
     const baseUrl = import.meta.env.VITE_NLP_API_URL;
-
     if (!baseUrl) { throw new Error("Thiếu VITE_NLP_API_URL trong .env.");}
 
     const token = getAccessToken();
-
     if (!token) throw new Error("Bạn chưa đăng nhập.");
 
     const url =`${baseUrl.replace(/\/$/, "")}/api/devices/${deviceId}/binding`;
@@ -47,7 +45,7 @@ async function sendBindingRequest(deviceId, method, body = null) {
     {
         const error = new Error(
             "Mất kết nối NLP Server. Chưa rõ yêu cầu đã được " +
-            "ESP32 thực hiện hay chưa. Cần kiểm tra trước khi thử lại."
+            "MCU thực hiện hay chưa. Cần kiểm tra trước khi thử lại."
         );
 
         error.state = "unknown";

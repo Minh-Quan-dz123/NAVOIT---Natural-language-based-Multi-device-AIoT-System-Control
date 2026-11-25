@@ -44,7 +44,6 @@ public class DeviceController : ControllerBase
     public async Task<IActionResult> Create([FromBody] CreateDeviceRequestDto request)
     {
         var userId = GetCurrentUserId();
-
         if (userId == null)return Unauthorized();
 
         try
@@ -75,15 +74,13 @@ public class DeviceController : ControllerBase
     public async Task<IActionResult> GetAll()
     {
         var userId = GetCurrentUserId();
-
         if (userId == null) return Unauthorized();
-
         var devices = await _deviceService.GetAllByUserIdAsync(userId.Value);
 
         return Ok(devices);
     }
 
-    // 5. GET UNASSIGNED DEVICES
+    // 5. lấy device chưa được gắn GPIO
     // GET /api/device/unassigned
     [HttpGet("unassigned")]
     public async Task<IActionResult> GetUnassigned()
@@ -99,16 +96,13 @@ public class DeviceController : ControllerBase
 
     // 6. GET DEVICE BY ID
     // GET /api/device/{id}
-
     [HttpGet("{id:int}")]
     public async Task<IActionResult> GetById(int id)
     {
         var userId = GetCurrentUserId();
-
         if (userId == null) return Unauthorized();
 
         var device = await _deviceService.GetByIdAsync(id, userId.Value);
-
         if (device == null)
         {
             return NotFound(new {message = "Không tìm thấy Device."});
@@ -123,13 +117,11 @@ public class DeviceController : ControllerBase
     public async Task<IActionResult> Update(int id, [FromBody] UpdateDeviceRequestDto request)
     {
         var userId = GetCurrentUserId();
-
         if (userId == null) return Unauthorized();
 
         try
         {
             var device = await _deviceService.UpdateAsync( id, userId.Value, request);
-
             if (device == null)
             {
                 return NotFound(new { message = "Không tìm thấy Device."});
@@ -154,13 +146,11 @@ public class DeviceController : ControllerBase
     public async Task<IActionResult> Delete(int id)
     {
         var userId = GetCurrentUserId();
-
         if (userId == null) return Unauthorized();
 
         try
         {
             var deleted = await _deviceService.DeleteAsync(id,userId.Value);
-
             if (!deleted)
             {
                 return NotFound(new{  message = "Không tìm thấy Device."});

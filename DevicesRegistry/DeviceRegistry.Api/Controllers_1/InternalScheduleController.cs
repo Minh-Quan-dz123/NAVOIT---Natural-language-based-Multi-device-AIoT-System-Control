@@ -10,7 +10,7 @@ using Microsoft.AspNetCore.Mvc;
 namespace DeviceRegistry.Api.Controllers;
 
 
-// NLP Server gửi dữ liệu sau khi ESP32 xác nhận tạo lịch.
+// NLP Server gửi dữ liệu sau khi MCU xác nhận tạo lịch.
 public class ConfirmScheduleRequestDto : UpsertScheduleRequestDto
 {
     [Range(1, int.MaxValue)]
@@ -32,7 +32,7 @@ public class ConfirmScheduleRequestDto : UpsertScheduleRequestDto
 }
 
 
-// NLP Server gửi dữ liệu sau khi ESP32 xác nhận hủy lịch.
+// NLP Server gửi dữ liệu sau khi MCU xác nhận hủy lịch.
 public class ConfirmCancelScheduleRequestDto
 {
     [Range(1, int.MaxValue)]
@@ -67,7 +67,7 @@ public class InternalScheduleController : ControllerBase
 
     // 1. XÁC NHẬN TẠO SCHEDULE
     // POST /api/internal/devices/{deviceId}/schedule/confirm
-    // Chỉ lưu Schedule sau ACK tạo lịch của ESP32.
+    // Chỉ lưu Schedule sau ACK tạo lịch của MCU.
     [HttpPost("{deviceId:int}/schedule/confirm")]
     public async Task<IActionResult> ConfirmSchedule(int deviceId,[FromBody] ConfirmScheduleRequestDto request)
     {
@@ -111,7 +111,7 @@ public class InternalScheduleController : ControllerBase
 
     // 2. XÁC NHẬN HỦY SCHEDULE
     // POST /api/internal/devices/{deviceId}/schedule/cancel-confirm
-    // Chỉ xóa Schedule sau ACK hủy lịch của ESP32.
+    // Chỉ xóa Schedule sau ACK hủy lịch của MCU.
     [HttpPost("{deviceId:int}/schedule/cancel-confirm")]
     public async Task<IActionResult> ConfirmCancelSchedule(
         int deviceId,

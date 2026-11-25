@@ -1,4 +1,3 @@
-
 import jwt
 
 from fastapi import Depends, HTTPException

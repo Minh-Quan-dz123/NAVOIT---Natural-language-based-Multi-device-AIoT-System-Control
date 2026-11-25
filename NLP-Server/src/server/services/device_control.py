@@ -1,4 +1,3 @@
-
 import asyncio
 import json
 import ssl
@@ -24,14 +23,19 @@ from src.server.config import (
     MQTT_TLS,
     MQTT_TIMEOUT_SECONDS,
 )
-from src.server.services.device_binding import lock as operation_lock
 from src.server.clients.mqtt_binding import normalize_mac
 
+from contextlib import asynccontextmanager
+
+from src.server.services.operation_locks import (
+    get_device_lock,
+    get_mcu_lock,
+)
 
 
 # 1. REQUEST TỪ FRONTEND
 class ManualControlRequest(BaseModel):
-    action: Literal["ON", "OFF"]
+    action: Literal["ON", "OFF"] # chỉ nhận 1 trong 2 giá trị
 
 
 # 2. TRẢ LỖI
@@ -73,15 +77,11 @@ async def load_device_context(token: str, device_id: int):
         follow_redirects=False,
     ) as client:
 
-        catalog = await get_registry_data(
-            client, "/api/device/catalog"
-        )
-
+        catalog = await get_registry_data(client, "/api/device/catalog")
         if not isinstance(catalog, dict):
             fail(502, "Device Catalog không hợp lệ.")
 
         devices = catalog.get("devices")
-
         if not isinstance(devices, list):
             fail(502, "Device Catalog không hợp lệ.")
 
@@ -104,9 +104,7 @@ async def load_device_context(token: str, device_id: int):
             fail(409, "Device chưa đồng bộ, không thể điều khiển.")
 
         # Registry xác thực JWT và kiểm tra MCU thuộc User.
-        mcu = await get_registry_data(
-            client, f"/api/microcontroller/{mcu_id}"
-        )
+        mcu = await get_registry_data(client, f"/api/microcontroller/{mcu_id}")
 
         if not isinstance(mcu, dict):
             fail(502, "Dữ liệu MCU không hợp lệ.")
@@ -114,21 +112,42 @@ async def load_device_context(token: str, device_id: int):
         if mcu.get("id") != mcu_id:
             fail(409, "MCU không khớp.")
 
-        if str(mcu.get("type", "")).lower() != "esp32":
-            fail(409, "Chỉ hỗ trợ MCU loại ESP32.")
+        mcu_type = str(mcu.get("type") or "").strip().lower()
+        if not mcu_type or any(c in mcu_type for c in "/+#"):
+            fail(409, "Loại MCU không hợp lệ.")
 
         user_id = mcu.get("userId")
 
         if type(user_id) is not int or user_id <= 0:
             fail(409, "MCU chưa có chủ sở hữu hợp lệ.")
 
-        if normalize_mac(
-            device.get("macAddress", "")
-        ) != normalize_mac(mcu.get("macAddress", "")):
+        if normalize_mac(device.get("macAddress", "")) != normalize_mac(mcu.get("macAddress", "")):
             fail(409, "MAC của Device và MCU không khớp.")
 
         return device, mcu
 
+@asynccontextmanager
+async def locked_device_context(token: str, device_id: int):
+
+    # Khóa Device trước.
+    async with get_device_lock(device_id):
+
+        # Đọc để xác định MCU hiện tại.
+        device, mcu = await load_device_context(token, device_id)
+
+        mcu_id = mcu["id"]
+
+        # Khóa MCU tương ứng.
+        async with get_mcu_lock(mcu_id):
+
+            # Đọc lại dữ liệu sau khi đã lấy khóa.
+            device, mcu = await load_device_context(token, device_id)
+
+            # Không dùng thông tin MCU cũ nếu liên kết thay đổi.
+            if mcu["id"] != mcu_id:
+                fail(409, "Binding đã thay đổi, hãy thử lại.")
+
+            yield device, mcu
 
 # 5. CHỜ MQTT RESPONSE KHỚP REQUEST
 async def wait_response(
@@ -145,6 +164,7 @@ async def wait_response(
             if str(message.topic) != response_topic:
                 continue
 
+            # 1. chuyển message.payload thành json
             try:
                 data = json.loads(message.payload)
             except (ValueError, TypeError):
@@ -153,6 +173,7 @@ async def wait_response(
             if not isinstance(data, dict):
                 continue
 
+            # kiểm tra các thông tin khác xem response có khớp ko
             if data.get("command") != expected_command:
                 continue
 
@@ -198,20 +219,21 @@ async def control_mqtt(
     action: str,
     device_type: str,
     device_name: str,
+    mcu_type: str,
 ):
     if not MQTT_HOST:
         fail(503, "Chưa cấu hình MQTT_HOST.")
 
     mac = normalize_mac(mac_address)
 
-    base = f"iot/esp32/v1/{mac}"
+    mcu_type = mcu_type.strip().lower()
+
+    base = f"iot/{mcu_type}/v1/{mac}"
     request_topic = f"{base}/FROM_SV/command"
-    response_topic = f"{base}/FROM_ESP32/command"
+    response_topic = f"{base}/FROM_{mcu_type.upper()}/command"
 
     command_id = uuid4().hex
-    send_time = datetime.now(
-        timezone.utc
-    ).isoformat(timespec="seconds")
+    send_time = datetime.now(timezone.utc).isoformat(timespec="seconds")
 
     control_payload = {
         "command": "DEVICE_CONTROL_REQUEST",
@@ -244,11 +266,9 @@ async def control_mqtt(
             attempted = True
 
             # 7.1. Gửi lệnh ON/OFF
-            await publish_command(
-                mqtt, request_topic, control_payload
-            )
+            await publish_command(mqtt, request_topic, control_payload)
 
-            # 7.2. ESP32 xác nhận đã nhận lệnh vào Queue
+            # 7.2. ESP32 xác nhận đã nhận lệnh
             ack = await wait_response(
                 mqtt,
                 response_topic,
@@ -260,11 +280,7 @@ async def control_mqtt(
             )
 
             if ack.get("status") != "success":
-                fail(
-                    409,
-                    str(ack.get("message")
-                        or "ESP32 từ chối điều khiển."),
-                )
+                fail(409, str(ack.get("message")or "ESP32 từ chối điều khiển."))
 
             # 7.3. Chờ DeviceTask xử lý Queue (tick 100ms).
             await asyncio.sleep(0.25)
@@ -272,9 +288,7 @@ async def control_mqtt(
             # 7.4. Đọc lại trạng thái thực tế từ DeviceTask.
             # Đây là truy vấn, không gửi lệnh ON/OFF lần hai.
             refresh_id = uuid4().hex
-            refresh_time = datetime.now(
-                timezone.utc
-            ).isoformat(timespec="seconds")
+            refresh_time = datetime.now(timezone.utc).isoformat(timespec="seconds")
 
             refresh_payload = {
                 "command": "REFRESH_DEVICE_REQUEST",
@@ -283,9 +297,8 @@ async def control_mqtt(
                 "send_time": refresh_time,
             }
 
-            await publish_command(
-                mqtt, request_topic, refresh_payload
-            )
+            # tiếp tục gửi refresh
+            await publish_command(mqtt, request_topic, refresh_payload)
 
             refreshed = await wait_response(
                 mqtt,
@@ -400,7 +413,7 @@ async def save_device_status(
         )
 
 
-
+# Hàm chính
 async def control_device(
     device_id: int,
     body: ManualControlRequest,
@@ -412,24 +425,20 @@ async def control_device(
     if not REGISTRY_BASE_URL or not REGISTRY_INTERNAL_KEY:
         fail(503, "Thiếu cấu hình Device Registry.")
 
-    # Dùng chung lock với binding để tránh vừa tháo vừa điều khiển.
-    async with operation_lock:
+    # Khóa Device và MCU tương ứng.
+    async with locked_device_context(token, device_id) as (device, mcu):
 
-        # 9.1. Xác minh Device và quyền sở hữu
-        device, mcu = await load_device_context(
-            token, device_id
-        )
-
-        # 9.2. Gửi MQTT và kiểm tra trạng thái từ ESP32
+        # Gửi MQTT và xác nhận trạng thái thực tế.
         command_id, actual_status = await control_mqtt(
             mcu["macAddress"],
             device["gpio"],
             body.action,
             device["deviceType"],
             device.get("deviceName") or "",
+            mcu["type"],
         )
 
-        # 9.3. Chỉ lưu DB sau khi xác nhận kết quả
+        # Cập nhật Registry sau khi ESP32 xác nhận.
         result = await save_device_status(
             device_id,
             mcu["userId"],
